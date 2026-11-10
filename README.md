@@ -198,6 +198,7 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run ingest:cards` | Load Scryfall bulk data into the card tables. `-- --force` re-ingests an unchanged file |
 | `scripts/search-smoke.ts` | Eyeball search ranking against the real database (`npx tsx`) |
 | `npm run collection:smoke` | End-to-end check of the collection layer against the real database |
+| `npm run completion:smoke` | End-to-end check of set completion against the real database |
 | `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
 
 ## The collection
@@ -262,6 +263,53 @@ space is better than silently entering a hundred wrong cards.
 Server actions do the writing, and every one of them calls `requireUser()`
 first: an action is a public HTTP endpoint with a generated name, not a
 private function call, and `proxy.ts` never sees its POST body.
+
+## Set completion
+
+`/sets` lists every set you own a card from with a progress bar; `/sets/<code>`
+is the detail — overall, by rarity, by color, the scope rules, and the missing
+list with a want-list download.
+
+"Complete" is a stored per-set rule, because there is no objectively right
+answer. Bloomburrow has 397 English printings, of which **281** are
+booster-obtainable (collector numbers 1–281) and 116 are Collector Booster
+treatments and promos sharing the same code and set symbol. So "complete
+Bloomburrow" is 281 or 397 depending on what you meant.
+
+```
+completion_targets (set_code PK, booster_only, include_promos,
+                    include_extras, finish)
+```
+
+Default: **booster-only, any finish**. No row means "use the default", so
+resetting deletes rather than writing the defaults back — one representation
+of the default instead of two that can drift.
+
+**An exclusion is ignored when it would empty the set.** This is the rule
+worth knowing. Of ~971 non-digital sets with cards, most have *zero*
+booster-obtainable printings — all 46 commander sets, all 26 duel decks, 277
+of 278 promo sets — so applying `booster_only` literally would report a
+completion target of zero cards for most sets anyone owns, every Commander
+precon included. Each flag therefore applies only when the set has something
+for it to narrow to.
+
+It is per-flag, not all-or-nothing, and Bloomburrow Commander shows why:
+`blc` has no booster cards so `booster_only` is inert, but it does have
+non-promo cards, so the promo exclusion still bites and the default target is
+**355 of 356**. A flag that cannot bite is shown disabled in the UI and
+described as ignored, because "booster-obtainable cards only" is actively
+misleading on a Commander deck.
+
+The `finish` rule is literal: an etched foil does not satisfy a `foil` target,
+because etched is a separate treatment that usually exists alongside the
+regular foil, and counting one for the other would call a set complete while
+the regular foils are still missing.
+
+The missing list is the anti-join this whole stack was chosen for — a LEFT
+JOIN with an IS NULL test, which a document store cannot express without
+reading the entire set and the entire collection into application memory
+first. It exports as `1 Lightning Bolt (2ED) 162`, the format Moxfield,
+Archidekt and Deckbox all import.
 
 ## How auth is structured
 

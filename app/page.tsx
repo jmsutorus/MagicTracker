@@ -6,9 +6,9 @@ const PHASES = [
   { n: 0, name: "Foundation", detail: "App, database, auth, deploy", state: "done" },
   { n: 1, name: "Card database + search", detail: "Scryfall ingest, pg_trgm type-ahead", state: "done" },
   { n: 2, name: "Collection entry", detail: "Name + collector-number modes, locations", state: "done" },
-  { n: 3, name: "Set completion", detail: "Per-set scope rules, missing-card lists", state: "current" },
-  { n: 4, name: "Sealed product add", detail: "Precons in two clicks", state: "next" },
-  { n: 5, name: "Commander decks", detail: "Singleton, color identity, buy list", state: "todo" },
+  { n: 3, name: "Set completion", detail: "Per-set scope rules, missing-card lists", state: "done" },
+  { n: 4, name: "Sealed product add", detail: "Precons in two clicks", state: "current" },
+  { n: 5, name: "Commander decks", detail: "Singleton, color identity, buy list", state: "next" },
   { n: 6, name: "Bulk paste import", detail: "Decklists and CSV", state: "todo" },
   { n: 7, name: "Value tracking", detail: "Weekly owned-card prices", state: "todo" },
 ] as const;

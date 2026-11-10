@@ -183,23 +183,46 @@ clearly aren't the same completion goal:
 - 75 are borderless or extended-art Collector Booster treatments
 - `card_count` on the set object is 397, which includes extras Scryfall files under `blb`
 
-So "complete Bloomburrow" is 266 or ~341 depending on whether variants count. There is no
+So "complete Bloomburrow" is 281 or 397 depending on whether the treatments count. There is no
 objectively right answer, which is why it's a stored per-set rule rather than a hardcoded
-constant — with the default being **booster-only, nonfoil**, the most common meaning of
+constant — with the default being **booster-only, any finish**, the most common meaning of
 "I completed the set."
 
 ```sql
 completion_targets (
-  set_code     text PRIMARY KEY REFERENCES sets(code),
+  set_code     text PRIMARY KEY REFERENCES sets(code) ON DELETE CASCADE,
   booster_only      boolean NOT NULL DEFAULT true,
-  include_variants  boolean NOT NULL DEFAULT false,
   include_promos    boolean NOT NULL DEFAULT false,
-  finish            text    NOT NULL DEFAULT 'any'   -- any | nonfoil | foil
+  include_extras    boolean NOT NULL DEFAULT false,
+  finish            text    NOT NULL DEFAULT 'any'   -- any | nonfoil | foil | etched
 )
 ```
 
 Every completion view reads these flags. Change them per set from the UI and the progress bar
 recalculates — because it's a query, not a precomputed number.
+
+**Measured when Phase 3 was built**, which corrected three things above:
+
+| | |
+|---|---|
+| `blb` printings (en) | 397 |
+| of those, booster-obtainable | **281** (collector numbers 1–281) |
+| non-booster treatments | 116 (borderless showcase, extended art, promos) |
+| `is_variation` across blb/blc/pblb | **0** |
+
+- The booster count is **281**, not the 266 estimated earlier.
+- **`include_variants` is gone.** It was specified as `NOT is_variation`, and Scryfall sets
+  `variation` on nothing in these sets — the toggle would have been inert. The treatments it was
+  meant to control are exactly the non-booster cards, so `booster_only` already draws that line.
+  `include_extras` (art series, tokens) replaces it and does something real.
+- **An exclusion is ignored when it would empty the set.** Of ~971 non-digital sets with cards,
+  most have *zero* booster-obtainable printings: all 46 commander sets, all 26 duel decks, 277 of
+  278 promo sets. Applying `booster_only` unconditionally would report a completion target of
+  zero cards for most sets anyone owns — including every Commander precon. So each flag applies
+  only when the set has something for it to narrow to. Note this is per-flag, not all-or-nothing:
+  `blc` ignores `booster_only` (no booster cards) but still honors the promo exclusion, giving a
+  default target of 355 of its 356 printings.
+- `finish` gained a fourth value, `etched`, rather than making `foil` mean two things.
 
 ---
 

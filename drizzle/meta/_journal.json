@@ -43,6 +43,13 @@
       "when": 1794345926253,
       "tag": "0005_collection",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794347319428,
+      "tag": "0006_completion_targets",
+      "breakpoints": true
     }
   ]
 }

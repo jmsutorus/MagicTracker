@@ -302,12 +302,16 @@ export const ingestRuns = pgTable(
 export {
   CARD_CONDITIONS,
   CARD_FINISHES,
+  COMPLETION_FINISHES,
+  DEFAULT_COMPLETION_SCOPE,
   DEFAULT_LOCATION_NAME,
   LOCATION_KINDS,
 } from "@/lib/collection/constants";
 export type {
   CardCondition,
   CardFinish,
+  CompletionFinish,
+  CompletionScope,
   LocationKind,
 } from "@/lib/collection/constants";
 
@@ -411,6 +415,64 @@ export const collectionItems = pgTable(
   ],
 );
 
+
+/**
+ * What "complete" means for one set — stored per set, because there is no
+ * objectively right answer.
+ *
+ * Within `blb`, 281 cards are booster-obtainable (collector numbers 1-281)
+ * and another 116 are Collector Booster treatments and promos sharing the
+ * same code and set symbol. So "complete Bloomburrow" is 281 or 397
+ * depending on what you meant, and only you can say which.
+ *
+ * Every completion view reads these flags at query time, so changing one
+ * recalculates progress rather than invalidating a stored number.
+ *
+ * Unlike `collection_items`, this cascades on set deletion rather than
+ * restricting it: a scope row is four re-creatable toggles, and it should
+ * never be the thing that aborts a card-database refresh. The collection
+ * itself is irreplaceable, which is why that one restricts.
+ *
+ * Two departures from PLAN.md §4, both forced by the real data:
+ *
+ * - **No `include_variants`.** It was specified as `NOT is_variation`, but
+ *   Scryfall sets `variation` on nothing in blb, blc or pblb — the toggle
+ *   would have been inert. The borderless and extended-art treatments it was
+ *   meant to control are exactly the non-booster cards, so `booster_only`
+ *   already draws that line. `include_extras` replaces it and does something.
+ * - **Exclusions never empty a set.** `booster_only` is ignored for a set
+ *   with no booster-obtainable cards at all, and the same for the other two.
+ *   Of ~971 non-digital sets with cards, most have zero booster printings —
+ *   every commander deck, every duel deck, 277 of 278 promo sets — so
+ *   applying the flag unconditionally would report a completion target of
+ *   zero cards for most of the sets someone actually owns.
+ */
+export const completionTargets = pgTable(
+  "completion_targets",
+  {
+    setCode: text("set_code")
+      .primaryKey()
+      .references(() => sets.code, { onDelete: "cascade" }),
+
+    boosterOnly: boolean("booster_only").notNull().default(true),
+    includePromos: boolean("include_promos").notNull().default(false),
+    includeExtras: boolean("include_extras").notNull().default(false),
+
+    /** any | nonfoil | foil | etched */
+    finish: text("finish").notNull().default("any"),
+
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "completion_targets_finish_check",
+      sql`${table.finish} IN ('any', 'nonfoil', 'foil', 'etched')`,
+    ),
+  ],
+);
+
 export type Set = typeof sets.$inferSelect;
 export type OracleCard = typeof oracleCards.$inferSelect;
 export type Printing = typeof printings.$inferSelect;
@@ -419,3 +481,4 @@ export type NewIngestRun = typeof ingestRuns.$inferInsert;
 export type Location = typeof locations.$inferSelect;
 export type NewLocation = typeof locations.$inferInsert;
 export type CollectionItem = typeof collectionItems.$inferSelect;
+export type CompletionTarget = typeof completionTargets.$inferSelect;
