@@ -1,68 +1,162 @@
-import Image from "next/image";
+import { signOut } from "@/auth";
+import { requireUser } from "@/lib/auth/dal";
+import { getDbStatus } from "@/lib/db/status";
 
-export default function Home() {
+const PHASES = [
+  { n: 0, name: "Foundation", detail: "App, database, auth, deploy", state: "current" },
+  { n: 1, name: "Card database + search", detail: "Scryfall ingest, pg_trgm type-ahead", state: "next" },
+  { n: 2, name: "Collection entry", detail: "Name + collector-number modes, locations", state: "todo" },
+  { n: 3, name: "Set completion", detail: "Per-set scope rules, missing-card lists", state: "todo" },
+  { n: 4, name: "Sealed product add", detail: "Precons in two clicks", state: "todo" },
+  { n: 5, name: "Commander decks", detail: "Singleton, color identity, buy list", state: "todo" },
+  { n: 6, name: "Bulk paste import", detail: "Decklists and CSV", state: "todo" },
+  { n: 7, name: "Value tracking", detail: "Weekly owned-card prices", state: "todo" },
+] as const;
+
+function StatusRow({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  tone?: "ok" | "bad" | "warn" | "neutral";
+}) {
+  const toneClass =
+    tone === "ok"
+      ? "text-ok"
+      : tone === "bad"
+        ? "text-bad"
+        : tone === "warn"
+          ? "text-warn"
+          : "text-foreground";
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <div className="flex items-baseline justify-between gap-4 py-2 border-b border-border last:border-0">
+      <dt className="text-sm text-muted">{label}</dt>
+      <dd className={`text-sm font-mono text-right ${toneClass}`}>{value}</dd>
+    </div>
+  );
+}
+
+export default async function DashboardPage() {
+  const user = await requireUser();
+  const status = await getDbStatus();
+
+  return (
+    <div className="flex-1 flex flex-col">
+      <header className="border-b border-border">
+        <div className="mx-auto w-full max-w-3xl px-4 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-baseline gap-2 min-w-0">
+            <span className="text-lg font-semibold tracking-tight">MagicTracker</span>
+            <span className="text-xs text-muted shrink-0">Phase 0</span>
+          </div>
+          <form
+            action={async () => {
+              "use server";
+              await signOut({ redirectTo: "/login" });
+            }}
+          >
+            <button
+              type="submit"
+              className="text-sm text-muted hover:text-foreground underline underline-offset-4 cursor-pointer"
+            >
+              Sign out
+            </button>
+          </form>
+        </div>
+      </header>
+
+      <main className="flex-1 mx-auto w-full max-w-3xl px-4 py-8 space-y-8">
+        <section>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Foundation is up
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="mt-2 text-muted">
+            Signed in as <span className="font-mono text-foreground">{user.email}</span>.
+            Nothing else can get in — sign-in is gated by an email allowlist that
+            fails closed.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+        </section>
+
+        <section className="rounded-lg border border-border bg-surface p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+            Database
+          </h2>
+          <dl className="mt-3">
+            {status.reachable ? (
+              <>
+                <StatusRow label="Connection" value="reachable" tone="ok" />
+                <StatusRow label="Server" value={status.serverVersion} />
+                <StatusRow label="Round trip" value={`${status.latencyMs} ms`} />
+                <StatusRow
+                  label="pg_trgm (fuzzy search)"
+                  value={status.pgTrgmInstalled ? "installed" : "not installed"}
+                  tone={status.pgTrgmInstalled ? "ok" : "warn"}
+                />
+                <StatusRow
+                  label="Migrations applied"
+                  value={String(status.migrationsApplied)}
+                  tone={status.migrationsApplied > 0 ? "ok" : "warn"}
+                />
+                <StatusRow
+                  label="Tables"
+                  value={status.tables.length ? status.tables.join(", ") : "none"}
+                />
+              </>
+            ) : (
+              <>
+                <StatusRow label="Connection" value="unreachable" tone="bad" />
+                <StatusRow label="Error" value={status.error} tone="bad" />
+              </>
+            )}
+          </dl>
+          {status.reachable && status.latencyMs > 1000 ? (
+            <p className="mt-3 text-xs text-muted">
+              A slow first request is expected: Neon&apos;s free compute suspends
+              after 5 minutes idle and takes a few hundred ms to wake.
+            </p>
+          ) : null}
+        </section>
+
+        <section className="rounded-lg border border-border bg-surface p-5">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+            Roadmap
+          </h2>
+          <ol className="mt-3 space-y-1">
+            {PHASES.map((phase) => (
+              <li
+                key={phase.n}
+                className="flex items-baseline gap-3 py-1.5 border-b border-border last:border-0"
+              >
+                <span
+                  className={`font-mono text-xs w-6 shrink-0 ${
+                    phase.state === "current"
+                      ? "text-accent"
+                      : phase.state === "next"
+                        ? "text-foreground"
+                        : "text-muted"
+                  }`}
+                >
+                  {phase.n}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span
+                    className={
+                      phase.state === "todo" ? "text-muted" : "text-foreground"
+                    }
+                  >
+                    {phase.name}
+                  </span>
+                  <span className="block text-xs text-muted">{phase.detail}</span>
+                </span>
+                {phase.state === "current" ? (
+                  <span className="text-xs text-accent shrink-0">building</span>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </section>
       </main>
     </div>
   );

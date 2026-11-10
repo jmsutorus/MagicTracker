@@ -1,0 +1,73 @@
+# Firebase App Hosting configuration.
+# Docs: https://firebase.google.com/docs/app-hosting/configure
+#
+# Requires the Blaze plan. Sized for a single-user app: min 0 instances so an
+# idle app costs nothing, max 1 because there is exactly one person using it.
+
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  minInstances: 0
+  maxInstances: 1
+  concurrency: 80
+
+env:
+  # --- Secrets (Secret Manager) -------------------------------------------
+  #
+  # All of these are RUNTIME-only, never BUILD. The build was verified to
+  # succeed with no secrets present at all (see lib/db/index.ts — the database
+  # client connects lazily precisely so that stays true), so there is no reason
+  # to expose any credential to the build step.
+  #
+  # Create each one before the first deploy:
+  #   firebase apphosting:secrets:set DATABASE_URL
+  #   firebase apphosting:secrets:set AUTH_SECRET
+  #   firebase apphosting:secrets:set AUTH_GOOGLE_ID
+  #   firebase apphosting:secrets:set AUTH_GOOGLE_SECRET
+  #   firebase apphosting:secrets:set ALLOWED_EMAILS
+
+  - variable: DATABASE_URL
+    secret: DATABASE_URL
+    availability:
+      - RUNTIME
+
+  - variable: AUTH_SECRET
+    secret: AUTH_SECRET
+    availability:
+      - RUNTIME
+
+  - variable: AUTH_GOOGLE_ID
+    secret: AUTH_GOOGLE_ID
+    availability:
+      - RUNTIME
+
+  - variable: AUTH_GOOGLE_SECRET
+    secret: AUTH_GOOGLE_SECRET
+    availability:
+      - RUNTIME
+
+  # A secret rather than a plain value on purpose: this is a personal email
+  # address, and plain `value:` entries live in this file, which is committed
+  # to the repository.
+  - variable: ALLOWED_EMAILS
+    secret: ALLOWED_EMAILS
+    availability:
+      - RUNTIME
+
+  # --- Plain configuration -------------------------------------------------
+
+  # TEMPORARY. Auth.js needs to know its own public origin to build the OAuth
+  # callback URL, and the App Hosting domain isn't known until the backend
+  # exists. Until then, trust the forwarded host header.
+  #
+  # Replace with an explicit AUTH_URL as soon as the domain is known:
+  #   - variable: AUTH_URL
+  #     value: https://<backend>--<project>.<region>.hosted.app
+  #     availability: [RUNTIME]
+  # and delete this entry. Trusting the host header is a host-spoofing vector;
+  # the only thing limiting the blast radius meanwhile is that Google rejects
+  # any redirect_uri not registered on the OAuth client.
+  - variable: AUTH_TRUST_HOST
+    value: "true"
+    availability:
+      - RUNTIME
