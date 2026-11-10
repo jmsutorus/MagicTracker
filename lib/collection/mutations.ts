@@ -454,6 +454,11 @@ function describeDbError(error: unknown, attempting: string): string {
   switch (code) {
     case "23505":
       return "You already have an entry like that.";
+    case "23001":
+      // ON DELETE RESTRICT, which is what guards the collection. deleteLocation
+      // pre-checks the card count and gives a better message, so reaching here
+      // means something was added in the gap between that check and the delete.
+      return "Something still refers to that — it is in use and was not removed.";
     case "23503":
       return "That card or location no longer exists.";
     case "23514":
