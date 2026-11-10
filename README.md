@@ -164,6 +164,14 @@ The job never truncates. From Phase 2 `collection_items` references
 cascade away the record of cards physically owned. It upserts, and reports
 stale rows instead of deleting them.
 
+**On database size.** A full ingest rewrites every row, so each one leaves
+roughly its own size again in dead tuples. That is not a leak: autovacuum
+marks the space reusable and the next ingest reuses it rather than extending
+the files. Measured over three consecutive forced ingests the database went
+99 MB -> 176 MB -> 178 MB, i.e. it settles at about twice the live data, or
+17% of Neon's 1 GB free limit. A normal weekly run only touches rows that
+actually changed, so the churn is far smaller than that test.
+
 ### Google OAuth redirect URIs
 
 The OAuth client needs **both** origins registered, or sign-in fails with
