@@ -2,7 +2,11 @@ import Link from "next/link";
 
 import { signOut } from "@/auth";
 
-export function AppHeader({ current }: { current?: "dashboard" | "cards" }) {
+export function AppHeader({
+  current,
+}: {
+  current?: "dashboard" | "cards" | "collection";
+}) {
   const navClass = (key: string) =>
     `text-sm ${
       current === key
@@ -20,6 +24,9 @@ export function AppHeader({ current }: { current?: "dashboard" | "cards" }) {
         <nav className="flex items-center gap-4">
           <Link href="/" className={navClass("dashboard")}>
             Dashboard
+          </Link>
+          <Link href="/collection" className={navClass("collection")}>
+            Collection
           </Link>
           <Link href="/cards" className={navClass("cards")}>
             Cards

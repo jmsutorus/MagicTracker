@@ -197,7 +197,71 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run db:check` | Connectivity + migration + extension check |
 | `npm run ingest:cards` | Load Scryfall bulk data into the card tables. `-- --force` re-ingests an unchanged file |
 | `scripts/search-smoke.ts` | Eyeball search ranking against the real database (`npx tsx`) |
+| `npm run collection:smoke` | End-to-end check of the collection layer against the real database |
 | `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
+
+## The collection
+
+Two tables, and they are the only data here that cannot be regenerated: the
+card database rebuilds from Scryfall in 35 seconds, but the record of which
+cards are in which binder exists nowhere else.
+
+```
+locations        (id, name, kind, sort_order)
+collection_items (id, printing_id, finish, condition, location_id, quantity,
+                  acquired_at, acquired_price_cents, notes,
+                  UNIQUE (printing_id, finish, condition, location_id))
+```
+
+Decisions worth knowing before changing any of it:
+
+- **Copies are aggregated.** A playset is `quantity: 4`, not four rows. That
+  unique key is what makes `add` an upsert that adds to the quantity, and it
+  is why entering the same card twice cannot produce two rows that later
+  disagree about where it is.
+- **`printing_id` is `ON DELETE RESTRICT`, not `CASCADE`.** If anything ever
+  tries to delete a printing somebody owns, it must fail loudly rather than
+  quietly taking the collection row with it. This is transitive: `printings`
+  cascades from `oracle_cards` and `sets`, so deleting an owned card's oracle
+  row now aborts too.
+- **`location_id` is NOT NULL**, defaulting to a seeded `Unsorted` row.
+  Postgres treats NULLs as distinct, so a nullable location would give every
+  unplaced copy its own row instead of merging.
+- **There is no `language` column.** Scryfall models each language as its own
+  printing, so `printings.lang` already answers it.
+- **A stored `quantity` of 0 is forbidden** by a CHECK constraint, so an
+  adjustment that reaches zero deletes the row. The adjust is a single
+  statement, not read-then-write, so two concurrent decrements cannot both
+  read 1 and both write 0.
+- **`acquired_price_cents` is set on insert and never overwritten by a merge.**
+  Once two purchases at different prices are one quantity, no single price is
+  true, and Phase 7 compares this against market value — where a confidently
+  wrong number is worse than a null.
+
+### Entering cards
+
+`/collection/add` has two modes because the two ways cards arrive are
+genuinely different:
+
+- **Collector number** — pin a set once, then type bare numbers: `123` ⏎
+  `87` ⏎. A freshly opened pack is in set order with the number printed on
+  every card, so this beats any name-based flow for sealed, and there is no
+  printing to disambiguate. `4x 123` enters a playset.
+- **Card name** — type, arrow to the card, Enter. A card with one printing is
+  added immediately; otherwise Enter opens the printing list and a second
+  Enter commits.
+
+Finish, condition and location stay put between entries, focus returns to the
+input after every add, and every add is logged with an undo.
+
+`4x123` and `123x4` are **rejected as ambiguous** rather than guessed. They
+are mirror images, so any rule that reads a quantity out of one reads the
+other backwards — `123x4` would enter 123 copies of card #4. Asking for a
+space is better than silently entering a hundred wrong cards.
+
+Server actions do the writing, and every one of them calls `requireUser()`
+first: an action is a public HTTP endpoint with a generated name, not a
+private function call, and `proxy.ts` never sees its POST body.
 
 ## How auth is structured
 

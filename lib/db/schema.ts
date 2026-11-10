@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   date,
   doublePrecision,
   index,
@@ -9,6 +10,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -276,8 +278,144 @@ export const ingestRuns = pgTable(
   ],
 );
 
+
+/**
+ * HUMAN-OWNED TABLES (locations / collection_items)
+ *
+ * These hold the only data in this database that cannot be regenerated. The
+ * card tables above can be rebuilt from Scryfall in 35 seconds; the record of
+ * which cards are physically in which binder exists nowhere else.
+ *
+ * `collection_items.printing_id` is therefore declared ON DELETE RESTRICT,
+ * not CASCADE. If anything ever tries to delete a printing somebody owns, the
+ * delete must fail loudly rather than quietly taking the collection row with
+ * it. Note that this makes the restriction transitive: `printings` cascades
+ * from `oracle_cards` and `sets`, so deleting an oracle card whose printing is
+ * owned now aborts too, which is the intent.
+ */
+
+/**
+ * Domain values live in lib/collection/constants.ts and are re-exported here.
+ * That module has no imports, so client components can use the same constants
+ * without pulling drizzle-orm into the browser bundle.
+ */
+export {
+  CARD_CONDITIONS,
+  CARD_FINISHES,
+  DEFAULT_LOCATION_NAME,
+  LOCATION_KINDS,
+} from "@/lib/collection/constants";
+export type {
+  CardCondition,
+  CardFinish,
+  LocationKind,
+} from "@/lib/collection/constants";
+
+export const locations = pgTable(
+  "locations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    name: text("name").notNull(),
+
+    kind: text("kind").notNull().default("box"),
+
+    /** Hand-ordered so the places you use most sit at the top of the picker. */
+    sortOrder: integer("sort_order").notNull().default(0),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Case-insensitive: "Binder A" and "binder a" are the same shelf, and
+    // letting both exist would split one binder's contents across two rows.
+    uniqueIndex("locations_name_lower_key").on(sql`lower(${table.name})`),
+    index("locations_sort_idx").on(table.sortOrder, table.name),
+    check("locations_kind_check", sql`${table.kind} IN ('binder', 'box', 'deck', 'tradeable', 'sold')`),
+  ],
+);
+
+/**
+ * What I physically own: this printing, in this finish, at this condition, in
+ * this place — and how many.
+ *
+ * Copies are aggregated rather than stored one row per card: entering a
+ * playset means quantity 4, not four rows. The unique key is what makes that
+ * work, and it is why `add` is an upsert that adds to `quantity` instead of an
+ * insert.
+ *
+ * Language is deliberately NOT a column here, which is a departure from the
+ * original sketch in PLAN.md §5. Scryfall models each language as its own
+ * printing, so `printings.lang` already answers it; a second copy of the same
+ * fact could only ever disagree with the first.
+ */
+export const collectionItems = pgTable(
+  "collection_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    printingId: uuid("printing_id")
+      .notNull()
+      .references(() => printings.scryfallId, { onDelete: "restrict" }),
+
+    finish: text("finish").notNull().default("nonfoil"),
+    condition: text("condition").notNull().default("NM"),
+
+    /**
+     * Required, not nullable. Partly because "where is it" is a question this
+     * app exists to answer, and partly because a nullable column cannot carry
+     * the unique key: Postgres treats NULLs as distinct, so every unplaced
+     * copy of a card would get its own row instead of merging. Everything
+     * starts in the seeded `Unsorted` location.
+     */
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => locations.id, { onDelete: "restrict" }),
+
+    quantity: integer("quantity").notNull().default(1),
+
+    acquiredAt: date("acquired_at"),
+
+    /**
+     * Set when the row is created and never overwritten by a later merge:
+     * once two acquisitions at different prices have been folded into one
+     * quantity, no single price is the truth. Phase 7 compares this against
+     * market value, so a wrong number here is worse than a missing one.
+     */
+    acquiredPriceCents: integer("acquired_price_cents"),
+
+    notes: text("notes"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("collection_items_identity_key").on(
+      table.printingId,
+      table.finish,
+      table.condition,
+      table.locationId,
+    ),
+    index("collection_items_printing_idx").on(table.printingId),
+    index("collection_items_location_idx").on(table.locationId),
+    // A zero-quantity row is not "I own none of these", it is a row that
+    // should have been deleted. Enforced so a bad decrement cannot leave one.
+    check("collection_items_quantity_check", sql`${table.quantity} > 0`),
+    check("collection_items_finish_check", sql`${table.finish} IN ('nonfoil', 'foil', 'etched')`),
+    check("collection_items_condition_check", sql`${table.condition} IN ('NM', 'LP', 'MP', 'HP', 'DMG')`),
+  ],
+);
+
 export type Set = typeof sets.$inferSelect;
 export type OracleCard = typeof oracleCards.$inferSelect;
 export type Printing = typeof printings.$inferSelect;
 export type IngestRun = typeof ingestRuns.$inferSelect;
 export type NewIngestRun = typeof ingestRuns.$inferInsert;
+export type Location = typeof locations.$inferSelect;
+export type NewLocation = typeof locations.$inferInsert;
+export type CollectionItem = typeof collectionItems.$inferSelect;

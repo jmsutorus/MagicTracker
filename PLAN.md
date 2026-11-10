@@ -239,9 +239,10 @@ product_contents  (sealed_product_uuid FK, kind, precon_deck_id FK NULL,
 
 -- ======== Mine: human-owned, backed up, ingest never writes here ========
 locations         (id PK, name, kind)   -- binder | box | deck | tradeable | sold
-collection_items  (id PK, printing_id FK, finish, condition, language,
-                   location_id FK, quantity, acquired_at, acquired_price_cents, notes,
-                   UNIQUE (printing_id, finish, condition, language, location_id))
+collection_items  (id PK, printing_id FK, finish, condition,
+                   location_id FK NOT NULL, quantity, acquired_at,
+                   acquired_price_cents, notes,
+                   UNIQUE (printing_id, finish, condition, location_id))
 completion_targets(... see §4 ...)
 decks             (id PK, name, format, commander_printing_id FK NULL, notes,
                    is_physical, location_id FK NULL)
@@ -257,9 +258,20 @@ ingest_runs       (id PK, source, started_at, finished_at, status, row_count,
 search; btree on `(set_code, collector_number)` for pack entry; btree on
 `collection_items.printing_id`.
 
-**The hard line:** ingest may `TRUNCATE` and rebuild the machine-owned tables and must never
-write to the human-owned ones. Those reference printings by `scryfall_id`, which is stable
-across rebuilds.
+**The hard line:** ingest may rebuild the machine-owned tables and must never write to the
+human-owned ones. Those reference printings by `scryfall_id`, which is stable across rebuilds.
+(Phase 1 tightened this: the ingest upserts and never truncates, because `collection_items`
+references `printings.scryfall_id` with `ON DELETE RESTRICT`.)
+
+**Two departures from the sketch above, settled while building Phase 2:**
+
+- **No `language` column on `collection_items`.** Scryfall models each language as its own
+  printing, so `printings.lang` already answers it. A second copy of the same fact could only
+  ever disagree with the first. It is dropped from the unique key too.
+- **`location_id` is NOT NULL**, defaulting to a seeded `Unsorted` row. Partly because "where
+  is it" is a question this app exists to answer, and partly because the unique key cannot work
+  without it: Postgres treats NULLs as distinct, so every unplaced copy of a card would get its
+  own row instead of merging into one quantity.
 
 **Don't double-count cards in built decks.** `deck_cards.is_allocated` separates a deck that
 physically exists in a box (cards are spoken for) from a deck that's only a list (cards are

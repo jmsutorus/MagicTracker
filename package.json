@@ -13,7 +13,8 @@
     "db:studio": "drizzle-kit studio",
     "db:check": "tsx scripts/db-check.ts",
     "test": "tsx --test \"lib/**/*.test.ts\"",
-    "ingest:cards": "tsx scripts/ingest-cards.ts"
+    "ingest:cards": "tsx scripts/ingest-cards.ts",
+    "collection:smoke": "tsx scripts/collection-smoke.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
