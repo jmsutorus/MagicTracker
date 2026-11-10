@@ -56,18 +56,13 @@ env:
 
   # --- Plain configuration -------------------------------------------------
 
-  # TEMPORARY. Auth.js needs to know its own public origin to build the OAuth
-  # callback URL, and the App Hosting domain isn't known until the backend
-  # exists. Until then, trust the forwarded host header.
+  # Auth.js needs its own public origin to build the OAuth callback URL.
   #
-  # Replace with an explicit AUTH_URL as soon as the domain is known:
-  #   - variable: AUTH_URL
-  #     value: https://<backend>--<project>.<region>.hosted.app
-  #     availability: [RUNTIME]
-  # and delete this entry. Trusting the host header is a host-spoofing vector;
-  # the only thing limiting the blast radius meanwhile is that Google rejects
-  # any redirect_uri not registered on the OAuth client.
-  - variable: AUTH_TRUST_HOST
-    value: "true"
+  # Pinned explicitly rather than using AUTH_TRUST_HOST, which would make
+  # Auth.js trust the forwarded host header — a host-spoofing vector, since the
+  # underlying Cloud Run URL is directly reachable. With the origin hard-coded,
+  # a spoofed Host cannot redirect the OAuth flow somewhere else.
+  - variable: AUTH_URL
+    value: https://magictracker--magictracker-514320.us-east5.hosted.app
     availability:
       - RUNTIME

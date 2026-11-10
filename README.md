@@ -63,6 +63,65 @@ When you deploy, add the production origin and
 `https://<your-domain>/api/auth/callback/google` to the same client, and set
 `AUTH_URL` to the deployed origin.
 
+## Deployment
+
+Firebase App Hosting, project `magictracker-514320`, backend `magictracker`.
+
+**Live:** https://magictracker--magictracker-514320.us-east5.hosted.app
+
+Region is **us-east5 (Columbus, Ohio)**, chosen to sit in the same metro as the
+Neon database (`aws-us-east-2`), since every page load makes a database round
+trip.
+
+```bash
+firebase deploy --only apphosting
+```
+
+Config lives in `apphosting.yaml` (runtime sizing + env) and `firebase.json`
+(which files get uploaded). `minInstances: 0` means an idle app costs nothing;
+`maxInstances: 1` because there is one user.
+
+### Secrets
+
+All five live in Secret Manager and are bound **RUNTIME-only** — the build is
+verified to succeed with no credentials present at all, so none are exposed to
+the build step:
+
+`DATABASE_URL`, `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`,
+`ALLOWED_EMAILS`
+
+`ALLOWED_EMAILS` is a secret rather than a plain `value:` in `apphosting.yaml`
+because that file is committed and it holds a personal email address.
+
+To change one:
+
+```bash
+printf '%s' 'new-value' | firebase apphosting:secrets:set NAME --data-file - --force
+firebase apphosting:secrets:grantaccess NAME --backend magictracker
+firebase deploy --only apphosting     # rollout picks up the new version
+```
+
+Don't pipe with `echo` — a trailing newline becomes part of the secret, which
+silently breaks a connection string.
+
+### Push-to-deploy
+
+Not connected. The backend was created non-interactively, so it has no GitHub
+link; deploys are from local source. Connecting the repo requires authorizing
+the Firebase GitHub App in the console (App Hosting → backend → settings), after
+which pushes to `main` build automatically.
+
+### Google OAuth redirect URIs
+
+The OAuth client needs **both** origins registered, or sign-in fails with
+`redirect_uri_mismatch`:
+
+- `http://localhost:3000/api/auth/callback/google`
+- `https://magictracker--magictracker-514320.us-east5.hosted.app/api/auth/callback/google`
+
+If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
+`apphosting.yaml`.
+
 ## Scripts
 
 | Command | Does |

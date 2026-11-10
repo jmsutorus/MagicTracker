@@ -1,0 +1,17 @@
+{
+  "apphosting": {
+    "backendId": "magictracker",
+    "rootDir": ".",
+    "ignore": [
+      ".env",
+      ".env.*",
+      "!.env.example",
+      "node_modules",
+      ".next",
+      ".git",
+      ".firebase",
+      "**/*.log",
+      "**/.DS_Store"
+    ]
+  }
+}
