@@ -1,0 +1,46 @@
+# Container for the weekly Scryfall ingest, run as a Cloud Run Job.
+#
+# This is deliberately NOT the image that serves the app — Firebase App
+# Hosting builds that one itself from apphosting.yaml. This image exists only
+# to run `scripts/ingest-cards.ts` on a schedule, with its own memory, its own
+# timeout and no public endpoint of any kind.
+#
+# It installs the full lockfile and runs the script through tsx, which is
+# exactly how the ingest runs locally and in the tests. A smaller image is
+# possible — the script's whole third-party surface is dotenv, pg,
+# pg-copy-streams — but hand-pruning node_modules would silently break the job
+# the first time someone adds an import, and this job runs once a week where a
+# few hundred MB of image pull costs nothing.
+
+FROM node:22-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+# --ignore-scripts: nothing in the dependency tree needs a postinstall to run
+# the ingest, and skipping them keeps the build from compiling native addons.
+RUN npm ci --ignore-scripts --no-audit --no-fund
+
+FROM node:22-slim AS runner
+WORKDIR /app
+
+# tini is PID 1 so that a Cloud Run task cancellation becomes a real SIGTERM
+# to node, rather than being swallowed by the npm/tsx process tree.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tini ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV NODE_ENV=production
+# The ingest streams a ~500 MB expanded JSONL file but peaks around 172 MB of
+# heap because it never buffers the whole thing. 512 MB of headroom is plenty
+# and makes a runaway fail fast instead of being OOM-killed by the platform.
+ENV NODE_OPTIONS=--max-old-space-size=512
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json tsconfig.json ./
+COPY scripts/ingest-cards.ts ./scripts/
+COPY lib/scryfall ./lib/scryfall
+
+# Unprivileged: the job reads Scryfall over HTTPS and writes to Postgres, and
+# needs nothing on the local filesystem.
+USER node
+
+ENTRYPOINT ["/usr/bin/tini", "--", "node_modules/.bin/tsx", "scripts/ingest-cards.ts"]

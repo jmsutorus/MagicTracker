@@ -111,6 +111,59 @@ link; deploys are from local source. Connecting the repo requires authorizing
 the Firebase GitHub App in the console (App Hosting → backend → settings), after
 which pushes to `main` build automatically.
 
+### Card data ingest
+
+The weekly Scryfall refresh is a **Cloud Run Job** started by **Cloud
+Scheduler** — not a GitHub Action, and not a route in the app.
+
+| | |
+|---|---|
+| Job | `ingest-cards`, region `us-east5` |
+| Schedule | `ingest-cards-weekly`, region `us-east4`, Mondays 09:17 UTC |
+| Image | `us-east5-docker.pkg.dev/magictracker-514320/magictracker/ingest-cards` |
+| Built from | `Dockerfile.ingest` via `cloudbuild.ingest.yaml` |
+| Runs as | `mtg-ingest@` — holds `secretAccessor` on one secret and nothing else |
+| Started by | `mtg-ingest-scheduler@` — holds `run.invoker` on this one job and nothing else |
+
+Cloud Scheduler is not offered in `us-east5`, which is why the trigger sits in
+`us-east4` and calls across. It sends one API request a week, so its latency
+does not matter; the *job* is in `us-east5` because the Neon database is in
+AWS `us-east-2` — same metro — and the ingest is round-trip heavy.
+
+Create or update the whole thing:
+
+```powershell
+powershell -File scripts/deploy-ingest-job.ps1
+```
+
+It is idempotent: change the ingest, run it again, and it rebuilds the image
+and rolls the job forward. It needs `gcloud auth login` once.
+
+```bash
+# run it now, and watch
+gcloud run jobs execute ingest-cards --region us-east5 --wait
+# re-ingest a bulk file the script would otherwise skip as unchanged
+gcloud run jobs execute ingest-cards --region us-east5 --args=--force --wait
+gcloud beta run jobs logs tail ingest-cards --region us-east5
+```
+
+**Why not GitHub Actions.** A CI runner would need its own long-lived copy of
+a database credential that can write every table, kept somewhere with a
+different blast radius from every other secret this project has. Keeping the
+job in GCP means the credential never leaves the project that already holds
+`DATABASE_URL`, and the job has no public endpoint at all — it can only be
+started through the Cloud Run Admin API by one service account.
+
+**Why not a route in the app.** The ingest takes over a minute, which exceeds
+the request timeout, and it would fight the single serving instance for
+memory. It also needs the *unpooled* endpoint, which the web app should not
+hold.
+
+The job never truncates. From Phase 2 `collection_items` references
+`printings.scryfall_id`, so a truncate would either trip the foreign key or
+cascade away the record of cards physically owned. It upserts, and reports
+stale rows instead of deleting them.
+
 ### Google OAuth redirect URIs
 
 The OAuth client needs **both** origins registered, or sign-in fails with
@@ -134,6 +187,9 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Drizzle Studio (browse the database) |
 | `npm run db:check` | Connectivity + migration + extension check |
+| `npm run ingest:cards` | Load Scryfall bulk data into the card tables. `-- --force` re-ingests an unchanged file |
+| `scripts/search-smoke.ts` | Eyeball search ranking against the real database (`npx tsx`) |
+| `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
 
 ## How auth is structured
 
@@ -153,8 +209,8 @@ This is the split Next's own authentication guide recommends.
 
 ## Working with the card data
 
-Not wired up yet (Phase 1), but the rules are fixed and the ingest must honor
-them — see PLAN.md §4:
+`scripts/ingest-cards.ts` honors these, and anything new that touches Scryfall
+has to as well — see PLAN.md §4:
 
 - Use Scryfall's **bulk files**, never card-by-card API crawling.
 - Always send a descriptive `User-Agent` and an explicit `Accept` header.

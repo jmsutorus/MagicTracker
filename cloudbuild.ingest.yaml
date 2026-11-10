@@ -1,0 +1,33 @@
+# Builds the ingest image (Dockerfile.ingest) and pushes it to Artifact
+# Registry. Invoked by scripts/deploy-ingest-job.ps1, not by a trigger.
+#
+# A config file rather than `gcloud builds submit --tag` because that shortcut
+# only looks for a file literally named `Dockerfile`, and the repository root
+# must not contain one: Firebase App Hosting would try to build the web app
+# from it instead of using its own buildpack.
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --file=Dockerfile.ingest
+      - --tag=${_IMAGE}:${_TAG}
+      - --tag=${_IMAGE}:latest
+      - .
+
+images:
+  - ${_IMAGE}:${_TAG}
+  - ${_IMAGE}:latest
+
+options:
+  # Required when the build runs as a user-managed service account, which is
+  # now the default for projects created after mid-2024: such a build has no
+  # permission to write to Cloud Build's own legacy logs bucket.
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _IMAGE: us-east5-docker.pkg.dev/magictracker-514320/magictracker/ingest-cards
+  _TAG: manual
+
+timeout: 1200s

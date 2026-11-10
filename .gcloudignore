@@ -1,0 +1,29 @@
+# What `gcloud builds submit` must NOT upload.
+#
+# This file completely replaces .gitignore for that upload — once a
+# .gcloudignore exists gcloud stops consulting .gitignore — so every
+# exclusion that matters has to be repeated here. The .env rules are the
+# reason this file is explicit rather than absent: a source upload sends the
+# working directory, and .env.local holds the database password and the OAuth
+# client secret.
+.env
+.env.*
+!.env.example
+
+.git/
+.gitignore
+
+node_modules/
+.next/
+out/
+build/
+
+# The app's own build inputs — the ingest image needs package.json,
+# package-lock.json, tsconfig.json, scripts/ and lib/scryfall/ and nothing
+# else. These are excluded to keep the upload small, not for secrecy.
+app/
+components/
+public/
+drizzle/
+.github/
+*.md

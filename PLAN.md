@@ -47,7 +47,7 @@ Non-goals for now: camera/OCR scanning (deferred — §10), trading, multi-user,
 | ORM / migrations | Drizzle | Lightweight, serverless-friendly, migrations stay readable SQL |
 | Hosting | **Firebase App Hosting** | GCP-native, git-push deploys, built on Cloud Run. Requires the Blaze plan — see below |
 | Auth | Auth.js, Google provider, single-email allowlist | ~30 min of work, no passwords. This app is on the public internet |
-| Ingest | Node script on GitHub Actions cron | Bulk card files exceed serverless limits; Actions is free and needs no machine left on |
+| Ingest | Node script as a **Cloud Run Job**, triggered by **Cloud Scheduler** | Bulk card files exceed serverless request limits, and the job needs no machine left on. Kept inside GCP so the database credential never leaves the project that already holds every other secret |
 | UI | Tailwind + shadcn/ui | Fast to build, looks intentional without a design phase |
 
 ### Hosting: Firebase App Hosting, and what it costs us
@@ -288,7 +288,17 @@ ORDER BY p.collector_number;
 
 ## 6. Ingest pipeline
 
-A GitHub Actions job, not a web request.
+A Cloud Run Job on a Cloud Scheduler trigger, not a web request.
+
+It deliberately runs outside the serving app. A 70-second ingest inside a
+request would fight the single serving instance for memory and would hit the
+request timeout, and the ingest needs the *unpooled* database endpoint, which
+the web app should never hold.
+
+It is also deliberately inside GCP rather than on a CI runner: an external
+runner would need its own long-lived copy of a database credential that can
+write every table, and that credential would then live somewhere with a
+different blast radius from the rest of the project's secrets.
 
 1. `GET /bulk-data` for the current `default_cards` download URI (daily timestamp).
 2. Compare against the last `ingest_runs` row; exit early if unchanged.
