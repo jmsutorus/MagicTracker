@@ -39,9 +39,16 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   /**
-   * Everything except the login page, the auth endpoints, and static assets.
+   * Page routes only — the login page, all of /api, and static assets are
+   * excluded.
+   *
+   * /api is excluded on purpose. Redirecting an API call to /login would hand
+   * a `fetch()` a 307 and a page of HTML, which is useless to the caller.
+   * Route handlers authenticate themselves via lib/auth/dal.ts and return a
+   * JSON 401 instead. Since real authorization was never in the proxy, nothing
+   * is weakened by this.
    */
   matcher: [
-    "/((?!login|api/auth|_next/static|_next/image|favicon.ico|robots.txt|manifest.webmanifest).*)",
+    "/((?!login|api/|_next/static|_next/image|favicon.ico|robots.txt|manifest.webmanifest).*)",
   ],
 };

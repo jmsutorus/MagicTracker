@@ -12,13 +12,15 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "db:check": "tsx scripts/db-check.ts",
-    "test": "tsx --test lib/**/*.test.ts"
+    "test": "tsx --test \"lib/**/*.test.ts\"",
+    "ingest:cards": "tsx scripts/ingest-cards.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
     "next": "16.4.6",
     "next-auth": "^5.0.0-beta.32",
     "pg": "^8.23.1",
+    "pg-copy-streams": "^7.0.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
@@ -26,6 +28,7 @@
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^20",
     "@types/pg": "^8.23.1",
+    "@types/pg-copy-streams": "^1.2.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^18.0.10",

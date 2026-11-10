@@ -1,12 +1,12 @@
-import { signOut } from "@/auth";
+import { AppHeader } from "@/components/app-header";
 import { requireUser } from "@/lib/auth/dal";
 import { getDbStatus } from "@/lib/db/status";
 
 const PHASES = [
-  { n: 0, name: "Foundation", detail: "App, database, auth, deploy", state: "current" },
-  { n: 1, name: "Card database + search", detail: "Scryfall ingest, pg_trgm type-ahead", state: "next" },
-  { n: 2, name: "Collection entry", detail: "Name + collector-number modes, locations", state: "todo" },
-  { n: 3, name: "Set completion", detail: "Per-set scope rules, missing-card lists", state: "todo" },
+  { n: 0, name: "Foundation", detail: "App, database, auth, deploy", state: "done" },
+  { n: 1, name: "Card database + search", detail: "Scryfall ingest, pg_trgm type-ahead", state: "done" },
+  { n: 2, name: "Collection entry", detail: "Name + collector-number modes, locations", state: "current" },
+  { n: 3, name: "Set completion", detail: "Per-set scope rules, missing-card lists", state: "next" },
   { n: 4, name: "Sealed product add", detail: "Precons in two clicks", state: "todo" },
   { n: 5, name: "Commander decks", detail: "Singleton, color identity, buy list", state: "todo" },
   { n: 6, name: "Bulk paste import", detail: "Decklists and CSV", state: "todo" },
@@ -45,37 +45,16 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex-1 flex flex-col">
-      <header className="border-b border-border">
-        <div className="mx-auto w-full max-w-3xl px-4 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-baseline gap-2 min-w-0">
-            <span className="text-lg font-semibold tracking-tight">MagicTracker</span>
-            <span className="text-xs text-muted shrink-0">Phase 0</span>
-          </div>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/login" });
-            }}
-          >
-            <button
-              type="submit"
-              className="text-sm text-muted hover:text-foreground underline underline-offset-4 cursor-pointer"
-            >
-              Sign out
-            </button>
-          </form>
-        </div>
-      </header>
+      <AppHeader current="dashboard" />
 
       <main className="flex-1 mx-auto w-full max-w-3xl px-4 py-8 space-y-8">
         <section>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Foundation is up
+            Dashboard
           </h1>
           <p className="mt-2 text-muted">
-            Signed in as <span className="font-mono text-foreground">{user.email}</span>.
-            Nothing else can get in — sign-in is gated by an email allowlist that
-            fails closed.
+            Signed in as{" "}
+            <span className="font-mono text-foreground">{user.email}</span>.
           </p>
         </section>
 
@@ -151,7 +130,9 @@ export default async function DashboardPage() {
                   <span className="block text-xs text-muted">{phase.detail}</span>
                 </span>
                 {phase.state === "current" ? (
-                  <span className="text-xs text-accent shrink-0">building</span>
+                  <span className="shrink-0 text-xs text-accent">building</span>
+                ) : phase.state === "done" ? (
+                  <span className="shrink-0 text-xs text-ok">done</span>
                 ) : null}
               </li>
             ))}

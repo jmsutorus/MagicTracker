@@ -1,0 +1,47 @@
+name: Ingest card data
+
+# Scryfall's card data barely changes between set releases, so weekly is
+# plenty — and the script exits early anyway when the bulk file is unchanged,
+# so an unnecessary run costs a single API call rather than a 77 MB download.
+#
+# workflow_dispatch is the one that matters in practice: run it by hand on set
+# release day instead of waiting for Monday.
+on:
+  schedule:
+    # Mondays 09:17 UTC. Odd minute on purpose: jobs scheduled on the hour
+    # queue behind everyone else's.
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Re-ingest even if the bulk file is unchanged"
+        type: boolean
+        default: false
+
+# Never let two ingests overlap — they would fight over the staging tables.
+concurrency:
+  group: ingest-cards
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Ingest Scryfall bulk data
+        run: npm run ingest:cards ${{ inputs.force && '-- --force' || '' }}
+        env:
+          # The direct (unpooled) Neon endpoint. COPY and long transactions
+          # behave badly through PgBouncer's transaction pooling, which is what
+          # the pooled connection string gives you.
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
