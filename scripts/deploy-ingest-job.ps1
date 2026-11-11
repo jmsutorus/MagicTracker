@@ -201,7 +201,7 @@ if (Test-Gc scheduler jobs describe $schedulerJob --location $SchedulerRegion --
   Note "updating the existing schedule"
   Invoke-Gc scheduler jobs update http $schedulerJob --location $SchedulerRegion --project $ProjectId --schedule $Schedule --time-zone Etc/UTC --uri $uri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s
 } else {
-  Invoke-Gc scheduler jobs create http $schedulerJob --location $SchedulerRegion --project $ProjectId --schedule $Schedule --time-zone Etc/UTC --uri $uri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s --description "Weekly Scryfall bulk-data ingest"
+  Invoke-Gc scheduler jobs create http $schedulerJob --location $SchedulerRegion --project $ProjectId --schedule $Schedule --time-zone Etc/UTC --uri $uri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s --description "Weekly card + sealed-product ingest"
 }
 
 Step "Done"

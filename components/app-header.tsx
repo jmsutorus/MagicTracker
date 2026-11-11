@@ -5,13 +5,11 @@ import { signOut } from "@/auth";
 export function AppHeader({
   current,
 }: {
-  current?: "dashboard" | "cards" | "collection" | "sets";
+  current?: "dashboard" | "cards" | "collection" | "sets" | "products";
 }) {
   const navClass = (key: string) =>
     `text-sm ${
-      current === key
-        ? "text-foreground"
-        : "text-muted hover:text-foreground"
+      current === key ? "text-foreground" : "text-muted hover:text-foreground"
     }`;
 
   return (
@@ -30,6 +28,9 @@ export function AppHeader({
           </Link>
           <Link href="/sets" className={navClass("sets")}>
             Sets
+          </Link>
+          <Link href="/products" className={navClass("products")}>
+            Products
           </Link>
           <Link href="/cards" className={navClass("cards")}>
             Cards

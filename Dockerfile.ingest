@@ -2,8 +2,9 @@
 #
 # This is deliberately NOT the image that serves the app — Firebase App
 # Hosting builds that one itself from apphosting.yaml. This image exists only
-# to run `scripts/ingest-cards.ts` on a schedule, with its own memory, its own
-# timeout and no public endpoint of any kind.
+# to run `scripts/ingest.ts` on a schedule, with its own memory, its own
+# timeout and no public endpoint of any kind. That script runs two jobs: the
+# Scryfall card ingest and the MTGJSON sealed-product catalog.
 #
 # It installs the full lockfile and runs the script through tsx, which is
 # exactly how the ingest runs locally and in the tests. A smaller image is
@@ -36,11 +37,16 @@ ENV NODE_OPTIONS=--max-old-space-size=512
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json tsconfig.json ./
-COPY scripts/ingest-cards.ts ./scripts/
-COPY lib/scryfall ./lib/scryfall
+COPY scripts/ingest.ts scripts/ingest-cards.ts scripts/ingest-products.ts ./scripts/
+# The whole lib tree, not the two directories the ingest imports today.
+# Hand-listing them is exactly the brittleness the note above warns about:
+# the product ingest reaches lib/products -> lib/db -> lib/db/schema ->
+# lib/collection/constants, and the next import added would break the job at
+# 3am rather than at build time. The tree is a few hundred KB of text.
+COPY lib ./lib
 
 # Unprivileged: the job reads Scryfall over HTTPS and writes to Postgres, and
 # needs nothing on the local filesystem.
 USER node
 
-ENTRYPOINT ["/usr/bin/tini", "--", "node_modules/.bin/tsx", "scripts/ingest-cards.ts"]
+ENTRYPOINT ["/usr/bin/tini", "--", "node_modules/.bin/tsx", "scripts/ingest.ts"]

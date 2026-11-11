@@ -19,8 +19,8 @@ out/
 build/
 
 # The app's own build inputs — the ingest image needs package.json,
-# package-lock.json, tsconfig.json, scripts/ and lib/scryfall/ and nothing
-# else. These are excluded to keep the upload small, not for secrecy.
+# package-lock.json, tsconfig.json, scripts/ and lib/ and nothing else.
+# These are excluded to keep the upload small, not for secrecy.
 app/
 components/
 public/

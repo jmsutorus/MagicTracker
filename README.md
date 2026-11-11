@@ -113,12 +113,19 @@ which pushes to `main` build automatically.
 
 ### Card data ingest
 
-The weekly Scryfall refresh is a **Cloud Run Job** started by **Cloud
-Scheduler** — not a GitHub Action, and not a route in the app.
+The weekly refresh is a **Cloud Run Job** started by **Cloud Scheduler** —
+not a GitHub Action, and not a route in the app. It runs two jobs in
+sequence, as separate child processes (`scripts/ingest.ts`):
+
+1. `ingest-cards.ts` — Scryfall bulk cards. ~90 seconds, peaks ~240 MB heap.
+2. `ingest-products.ts` — the MTGJSON sealed-product catalog. ~3 seconds.
+
+Neither depends on the other, so a failure in one does not skip the other and
+the exit code is non-zero if either failed.
 
 | | |
 |---|---|
-| Job | `ingest-cards`, region `us-east5` |
+| Job | `ingest-cards`, region `us-east5` (named for the first of its two jobs) |
 | Schedule | `ingest-cards-weekly`, region `us-east4`, Mondays 09:17 UTC |
 | Image | `us-east5-docker.pkg.dev/magictracker-514320/magictracker/ingest-cards` |
 | Built from | `Dockerfile.ingest` via `cloudbuild.ingest.yaml` |
@@ -162,7 +169,17 @@ hold.
 The job never truncates. From Phase 2 `collection_items` references
 `printings.scryfall_id`, so a truncate would either trip the foreign key or
 cascade away the record of cards physically owned. It upserts, and reports
-stale rows instead of deleting them.
+stale rows instead of deleting them. The product ingest follows the same
+rule, and additionally never overwrites a cached card list from the catalog
+refresh — it refreshes those deliberately, per product, further down.
+
+**What the product ingest deliberately does not download.** MTGJSON publishes
+no file dedicated to sealed products; deck contents live inside
+`AllPrintings.json.gz` (176 MB) or `AllDeckFiles.zip` (253 MB). The catalog
+alone is `DeckList.json` at 0.65 MB, and one deck is ~0.5 MB at
+`/api/v5/decks/<fileName>.json`. So the weekly job loads only the catalog
+(3,144 decks), and a product's contents are fetched the first time you open
+it and cached in `precon_cards` from then on. See "Sealed products" below.
 
 **On database size.** A full ingest rewrites every row, so each one leaves
 roughly its own size again in dead tuples. That is not a leak: autovacuum
@@ -195,10 +212,13 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Drizzle Studio (browse the database) |
 | `npm run db:check` | Connectivity + migration + extension check |
+| `npm run ingest` | Both ingests, in order — what the scheduled job runs |
 | `npm run ingest:cards` | Load Scryfall bulk data into the card tables. `-- --force` re-ingests an unchanged file |
+| `npm run ingest:products` | Load the MTGJSON sealed-product catalog. `-- --force` re-ingests an unchanged version |
 | `scripts/search-smoke.ts` | Eyeball search ranking against the real database (`npx tsx`) |
 | `npm run collection:smoke` | End-to-end check of the collection layer against the real database |
 | `npm run completion:smoke` | End-to-end check of set completion against the real database |
+| `npm run products:smoke` | End-to-end check of sealed-product add against the real database |
 | `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
 
 ## The collection
@@ -310,6 +330,56 @@ JOIN with an IS NULL test, which a document store cannot express without
 reading the entire set and the entire collection into application memory
 first. It exports as `1 Lightning Bolt (2ED) 162`, the format Moxfield,
 Archidekt and Deckbox all import.
+
+## Sealed products
+
+`/products` lists preconstructed decks; opening one and pressing a button puts
+its whole contents into the collection. Buying a Commander precon is two
+clicks rather than an hour of typing, which is the point of the phase.
+
+**Only precons, not every sealed product.** A booster box has no deterministic
+contents — "add a booster box" cannot name a single card — so there is nothing
+to add. A precon's card list is fixed, which is exactly what makes a one-step
+add possible. The catalog holds 3,144 decks, 206 of them Commander precons.
+
+**Two tables, filled at different times.**
+
+| | |
+|---|---|
+| `precon_products` | The catalog. 3,144 rows from `DeckList.json`, refreshed weekly |
+| `precon_cards` | One product's card list. Written on first open, then cached |
+
+**Three joins, all deliberate.**
+
+- `precon_products` → `sets` on `mtgjson_code`, LEFT. 3,122 of 3,144 products
+  link to a Scryfall set; MTGJSON's `Q01`–`Q08` Challenger-deck codes match
+  nothing, so a foreign key here would reject 22 real products and an inner
+  join would hide them.
+- `precon_cards` → `printings` on `scryfall_id`, LEFT, **with no foreign
+  key**. A card MTGJSON lists before Scryfall has it shows as unresolved
+  today and starts working by itself after the next card ingest, with no
+  product re-fetch. A real foreign key would instead make a brand-new product
+  fail to insert at all.
+- The card name, set code and collector number are stored alongside the id, so
+  an unresolved line still reads as a card rather than a bare UUID.
+
+**The add is one SQL statement.** A precon is ~100 lines against the one table
+in this database that cannot be regenerated. One statement is atomic by
+definition, so an add either happens completely or not at all — a hundred
+round trips could leave the collection holding half a deck with no record of
+which half.
+
+**The finish is clamped.** MTGJSON marks a precon commander `isFoil`; if
+Scryfall holds that printing as nonfoil-only, then storing `foil` is a copy
+that does not exist, and the same check that protects manual entry would
+reject it. So the finish falls back: as shipped → nonfoil → whatever the
+printing has. The clamp is one SQL expression (`finishExpr`) shared by every
+read and write, so the "owned" column, the preview and the add cannot
+disagree about which row a copy lands in.
+
+**Adding twice adds twice.** Two boxes is two copies of each card, not an
+error. The undo subtracts what the product contributed and never more, so a
+Sol Ring that was in the box before the add is still there afterwards.
 
 ## How auth is structured
 

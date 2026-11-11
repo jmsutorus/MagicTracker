@@ -254,11 +254,22 @@ printings         (scryfall_id PK, oracle_id FK, set_code FK, collector_number, 
                    mtgjson_uuid, tcgplayer_id,
                    UNIQUE (set_code, collector_number, lang))
 
-sealed_products   (uuid PK, set_code FK, name, category, subtype, card_count, release_date)
-precon_decks      (id PK, mtgjson_file_name UNIQUE, name, set_code FK, type, release_date)
-precon_deck_cards (precon_deck_id FK, printing_id FK, board, quantity, is_foil)
-product_contents  (sealed_product_uuid FK, kind, precon_deck_id FK NULL,
-                   printing_id FK NULL, quantity)
+precon_products   (file_name PK, name, mtgjson_set_code, product_type, released_at,
+                   source, card_count, distinct_count, unidentified_count,
+                   contents_version, contents_fetched_at)
+precon_cards      (id PK, file_name FK, board, scryfall_id, card_name,
+                   mtgjson_set_code, collector_number, quantity, is_foil, is_etched,
+                   UNIQUE (file_name, board, scryfall_id, is_foil, is_etched))
+
+-- Phase 4 replaced the four sketched product tables with these two.
+-- `sealed_products` and `product_contents` modelled boosters and bundles,
+-- whose contents are random: "add a booster box" cannot name a card, so
+-- there was nothing for those tables to hold. `precon_cards.scryfall_id`
+-- has no FK to printings on purpose — the join is LEFT at query time, so a
+-- card MTGJSON lists before Scryfall has it resolves itself on the next
+-- card ingest instead of making the product fail to insert. And the set
+-- link is a live join rather than a FK because MTGJSON's Q01-Q08
+-- Challenger codes match no Scryfall set at all.
 
 -- ======== Mine: human-owned, backed up, ingest never writes here ========
 locations         (id PK, name, kind)   -- binder | box | deck | tradeable | sold
@@ -341,12 +352,22 @@ different blast radius from the rest of the project's secrets.
 4. Project to schema columns only. **Never store the raw JSON blob per card** — that's the
    difference between ~150 MB and multiple GB against a 1 GB limit.
 5. `COPY` into staging tables, then upsert into live tables in one transaction.
-6. Pull MTGJSON products and decks; resolve to printings via `identifiers.scryfallId`; record
-   unresolved rows in `ingest_runs.warnings`.
+6. Pull the MTGJSON *deck catalog only* (`DeckList.json`, 0.65 MB); resolve each deck's cards
+   to printings via `identifiers.scryfallId` the first time someone opens that product, not
+   here; record unresolved rows in `ingest_runs.warnings`.
 7. Record the run.
 
-**Cadence:** cards and products weekly, plus `workflow_dispatch` for set-release day. Card data
-barely changes between releases.
+**Correction to step 6, from Phase 4.** This said "pull MTGJSON products and decks", meaning
+wholesale. MTGJSON publishes no download dedicated to sealed products — contents live inside
+`AllPrintings.json.gz` (176 MB) or `AllDeckFiles.zip` (253 MB) — so ingesting all 3,144 decks
+would mean 253 MB a week to make the handful of products anyone owns addable. The catalog is
+0.65 MB and one deck is ~0.5 MB on demand, so the weekly job takes the catalog and contents are
+fetched per product and cached. The two ingests run as separate child processes from
+`scripts/ingest.ts`; neither depends on the other, because the printing resolution is a LEFT
+JOIN at query time rather than a step here.
+
+**Cadence:** cards and products weekly, plus a manual `gcloud run jobs execute` for
+set-release day. Card data barely changes between releases.
 
 **Prices must not be ingested wholesale.** 110k printings × daily snapshots would exhaust 1 GB
 within months. Snapshot **only printings present in `collection_items`**, weekly — a few hundred
@@ -388,10 +409,17 @@ lists exportable as a want list.
 → *Done when:* "am I missing anything from Bloomburrow" is one click, and the BLB/BLC split
 behaves the way you define it.
 
-**Phase 4 — Sealed product add**
-Ingest products and precons. Product picker → "Add to collection," optionally dropping cards
-into a chosen location and auto-creating the matching deck, pre-allocated.
+**Phase 4 — Sealed product add** ✅
+Precon catalog ingested weekly; contents fetched per product on first open and cached. Product
+picker with type filter and owned-vs-contents progress → "Add to collection" in one atomic
+statement, into a chosen location at a chosen condition, with an undo that never takes a copy
+it did not add. Finishes are clamped to ones the printing was actually made in.
 → *Done when:* buying a Commander precon is two clicks, not an hour.
+
+*Two departures.* Only precons, not every sealed product: a booster box's contents are random,
+so "add a booster box" cannot name a card. And auto-creating the matching deck waits for
+Phase 5, which is where the `decks` tables arrive — the add does offer creating a deck *box*
+(a location) inline, so the cards land somewhere of their own either way.
 
 **Phase 5 — Commander decks**
 Deck CRUD, inline owned-vs-needed while adding, Commander rules only: 100-card singleton, color

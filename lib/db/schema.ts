@@ -99,7 +99,10 @@ export const oracleCards = pgTable(
      * `color_identity <@ commander_identity` — a Postgres array containment
      * test. This column is the reason that stays a one-line predicate.
      */
-    colorIdentity: text("color_identity").array().notNull().default(sql`'{}'`),
+    colorIdentity: text("color_identity")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
 
     keywords: text("keywords").array(),
 
@@ -166,7 +169,10 @@ export const printings = pgTable(
     lang: text("lang").notNull().default("en"),
 
     /** nonfoil | foil | etched — which finishes this printing exists in. */
-    finishes: text("finishes").array().notNull().default(sql`'{}'`),
+    finishes: text("finishes")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
 
     /**
      * The three flags that make completion scope configurable (PLAN.md §4).
@@ -274,10 +280,12 @@ export const ingestRuns = pgTable(
     error: text("error"),
   },
   (table) => [
-    index("ingest_runs_source_started_at_idx").on(table.source, table.startedAt),
+    index("ingest_runs_source_started_at_idx").on(
+      table.source,
+      table.startedAt,
+    ),
   ],
 );
-
 
 /**
  * HUMAN-OWNED TABLES (locations / collection_items)
@@ -314,6 +322,13 @@ export type {
   CompletionScope,
   LocationKind,
 } from "@/lib/collection/constants";
+export {
+  DEFAULT_PRECON_BOARDS,
+  DEFAULT_PRODUCT_TYPE,
+  PRECON_BOARDS,
+  PRECON_BOARD_LABELS,
+} from "@/lib/products/constants";
+export type { PreconBoard } from "@/lib/products/constants";
 
 export const locations = pgTable(
   "locations",
@@ -336,7 +351,10 @@ export const locations = pgTable(
     // letting both exist would split one binder's contents across two rows.
     uniqueIndex("locations_name_lower_key").on(sql`lower(${table.name})`),
     index("locations_sort_idx").on(table.sortOrder, table.name),
-    check("locations_kind_check", sql`${table.kind} IN ('binder', 'box', 'deck', 'tradeable', 'sold')`),
+    check(
+      "locations_kind_check",
+      sql`${table.kind} IN ('binder', 'box', 'deck', 'tradeable', 'sold')`,
+    ),
   ],
 );
 
@@ -410,11 +428,16 @@ export const collectionItems = pgTable(
     // A zero-quantity row is not "I own none of these", it is a row that
     // should have been deleted. Enforced so a bad decrement cannot leave one.
     check("collection_items_quantity_check", sql`${table.quantity} > 0`),
-    check("collection_items_finish_check", sql`${table.finish} IN ('nonfoil', 'foil', 'etched')`),
-    check("collection_items_condition_check", sql`${table.condition} IN ('NM', 'LP', 'MP', 'HP', 'DMG')`),
+    check(
+      "collection_items_finish_check",
+      sql`${table.finish} IN ('nonfoil', 'foil', 'etched')`,
+    ),
+    check(
+      "collection_items_condition_check",
+      sql`${table.condition} IN ('NM', 'LP', 'MP', 'HP', 'DMG')`,
+    ),
   ],
 );
-
 
 /**
  * What "complete" means for one set — stored per set, because there is no
@@ -473,6 +496,166 @@ export const completionTargets = pgTable(
   ],
 );
 
+/**
+ * SEALED PRODUCTS (precon_products / precon_cards)
+ *
+ * Machine-owned, from MTGJSON rather than Scryfall, and regenerable — so
+ * unlike `collection_items` these cascade freely.
+ *
+ * **Why only precons.** PLAN.md §7 says "ingest products and precons", but a
+ * booster box has no deterministic contents: "add a booster box to my
+ * collection" cannot name a single card. A precon is the one sealed product
+ * whose card list is fixed, which is exactly what makes adding it in one
+ * action possible. So this models decks, and the two-click path is for the
+ * product the user actually buys.
+ *
+ * **Why the catalog and the contents are separate tables, filled at different
+ * times.** MTGJSON publishes no download dedicated to sealed products;
+ * contents live inside `AllPrintings.json.gz` (176 MB) or `AllDeckFiles.zip`
+ * (253 MB), while the catalog alone is `DeckList.json` at 0.65 MB and one
+ * deck is ~0.5 MB at `/api/v5/decks/<file_name>.json`. Ingesting 3,144 decks
+ * to make four of them addable would be 253 MB for a few hundred rows. So the
+ * weekly job loads only the catalog, and a product's contents are fetched the
+ * first time you open it and then cached here forever.
+ */
+
+/**
+ * One sealed product with a known card list — mostly Commander precons.
+ *
+ * Rows arrive from MTGJSON's `DeckList.json`; the contents columns stay null
+ * until someone opens the product.
+ */
+export const preconProducts = pgTable(
+  "precon_products",
+  {
+    /**
+     * MTGJSON's deck identifier (`FamilyMatters_BLC`), used as the primary key
+     * and as this app's URL slug. It is stable across MTGJSON releases, unlike
+     * the display name, and unique across all 3,144 decks.
+     */
+    fileName: text("file_name").primaryKey(),
+
+    name: text("name").notNull(),
+
+    /**
+     * The set code as MTGJSON spells it (`BLC`), joined to
+     * `sets.mtgjson_code` at query time rather than stored as a foreign key.
+     *
+     * Live-joined for two reasons. 298 of the 304 codes match a Scryfall set,
+     * but `Q01`-`Q08` (MTGJSON's Challenger-deck codes) match nothing — so a
+     * foreign key here would reject six real products. And resolving at query
+     * time means a later card ingest that adds a brand-new set fixes the link
+     * with no product re-ingest.
+     */
+    mtgjsonSetCode: text("mtgjson_set_code").notNull(),
+
+    /** MTGJSON's own classification: "Commander Deck", "Theme Deck", … */
+    productType: text("product_type").notNull(),
+
+    releasedAt: date("released_at"),
+
+    /** Wizards' decklist article, where MTGJSON records one. */
+    source: text("source"),
+
+    /** Total copies across every board, set when the contents are fetched. */
+    cardCount: integer("card_count"),
+
+    /** Distinct printings across every board. */
+    distinctCount: integer("distinct_count"),
+
+    /**
+     * Entries MTGJSON gave us with no Scryfall id at all. A card whose id we
+     * have but whose printing we have not ingested yet is NOT counted here —
+     * that one resolves itself on the next card ingest, so it is computed by
+     * the join instead of frozen into a column.
+     */
+    unidentifiedCount: integer("unidentified_count"),
+
+    /** The MTGJSON version the contents were fetched at, for staleness. */
+    contentsVersion: text("contents_version"),
+    contentsFetchedAt: timestamp("contents_fetched_at", { withTimezone: true }),
+
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("precon_products_type_idx").on(table.productType, table.releasedAt),
+    index("precon_products_set_idx").on(table.mtgjsonSetCode),
+    index("precon_products_name_trgm_idx").using(
+      "gin",
+      sql`${table.name} gin_trgm_ops`,
+    ),
+    index("precon_products_released_idx").on(table.releasedAt),
+  ],
+);
+
+/**
+ * One line of a precon's card list.
+ *
+ * `scryfall_id` deliberately has **no foreign key** to `printings`. The join
+ * is a LEFT JOIN at query time, which makes "did this card resolve" a live
+ * question instead of stored state: a card MTGJSON lists before Scryfall has
+ * it shows as unresolved today and silently starts working after the next
+ * card ingest, with no product re-fetch. A real foreign key would instead
+ * make a brand-new product fail to insert at all.
+ *
+ * The name, set code and collector number are kept alongside it so an
+ * unresolved line still reads as a card in the UI rather than a bare UUID.
+ */
+export const preconCards = pgTable(
+  "precon_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    fileName: text("file_name")
+      .notNull()
+      .references(() => preconProducts.fileName, { onDelete: "cascade" }),
+
+    /** commander | main | side | token | plane | scheme */
+    board: text("board").notNull(),
+
+    /** Null when MTGJSON itself has no Scryfall id for the entry. */
+    scryfallId: uuid("scryfall_id"),
+
+    cardName: text("card_name").notNull(),
+    mtgjsonSetCode: text("mtgjson_set_code"),
+    collectorNumber: text("collector_number"),
+
+    quantity: integer("quantity").notNull(),
+
+    /**
+     * The finish the product ships that copy in — a precon commander is
+     * usually foil. Honored when adding, but clamped to a finish the printing
+     * was actually made in; see addProductToCollection.
+     */
+    isFoil: boolean("is_foil").notNull().default(false),
+    isEtched: boolean("is_etched").notNull().default(false),
+  },
+  (table) => [
+    index("precon_cards_file_idx").on(table.fileName, table.board),
+    index("precon_cards_scryfall_idx").on(table.scryfallId),
+    /**
+     * Identity of a line. Duplicate entries are summed before insert rather
+     * than stored twice, so this both holds and means something. NULL
+     * scryfall ids are distinct in Postgres, which is the behavior we want:
+     * two unidentified lines are two different cards.
+     */
+    uniqueIndex("precon_cards_identity_key").on(
+      table.fileName,
+      table.board,
+      table.scryfallId,
+      table.isFoil,
+      table.isEtched,
+    ),
+    check("precon_cards_quantity_check", sql`${table.quantity} > 0`),
+    check(
+      "precon_cards_board_check",
+      sql`${table.board} IN ('commander', 'main', 'side', 'token', 'plane', 'scheme')`,
+    ),
+  ],
+);
+
 export type Set = typeof sets.$inferSelect;
 export type OracleCard = typeof oracleCards.$inferSelect;
 export type Printing = typeof printings.$inferSelect;
@@ -482,3 +665,5 @@ export type Location = typeof locations.$inferSelect;
 export type NewLocation = typeof locations.$inferInsert;
 export type CollectionItem = typeof collectionItems.$inferSelect;
 export type CompletionTarget = typeof completionTargets.$inferSelect;
+export type PreconProduct = typeof preconProducts.$inferSelect;
+export type PreconCard = typeof preconCards.$inferSelect;
