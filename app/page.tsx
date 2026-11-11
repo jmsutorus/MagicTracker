@@ -8,9 +8,10 @@ const PHASES = [
   { n: 2, name: "Collection entry", detail: "Name + collector-number modes, locations", state: "done" },
   { n: 3, name: "Set completion", detail: "Per-set scope rules, missing-card lists", state: "done" },
   { n: 4, name: "Sealed product add", detail: "Precons in two clicks", state: "done" },
-  { n: 5, name: "Commander decks", detail: "Singleton, color identity, buy list", state: "current" },
-  { n: 6, name: "Bulk paste import", detail: "Decklists and CSV", state: "next" },
-  { n: 7, name: "Value tracking", detail: "Weekly owned-card prices", state: "todo" },
+  { n: 5, name: "Commander decks", detail: "Singleton, color identity, buy list", state: "done" },
+  { n: 6, name: "Bulk paste import", detail: "Decklists and CSV", state: "current" },
+  { n: 7, name: "Value tracking", detail: "Weekly owned-card prices", state: "next" },
+  { n: 8, name: "Polish", detail: "PWA icon, exports, share links", state: "todo" },
 ] as const;
 
 function StatusRow({

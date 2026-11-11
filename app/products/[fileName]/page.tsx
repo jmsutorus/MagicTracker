@@ -6,6 +6,7 @@ import {
   ProductAddForm,
   type BoardSummary,
 } from "@/components/product-add-form";
+import { ProductDeckButton } from "@/components/product-deck-button";
 import { requireUser } from "@/lib/auth/dal";
 import { listLocations } from "@/lib/collection/queries";
 import {
@@ -51,6 +52,11 @@ export default async function ProductPage({
   const contents = await ensureProductContents(fileName);
   const cards = contents.ok ? await listProductCards(fileName) : [];
   const locations = await listLocations();
+
+  // If a deck-kind location exists, the new deck points at it by default --
+  // a built precon lives in a deck box, and that is the one the Phase 4 add
+  // form creates inline.
+  const deckLocation = locations.find((l) => l.kind === "deck") ?? null;
 
   const boards = summarizeBoards(cards);
   const unresolved = cards.filter((c) => c.printingId === null);
@@ -158,6 +164,23 @@ export default async function ProductPage({
                 locations={locations.map((l) => ({ id: l.id, name: l.name }))}
               />
             </div>
+
+            {/*
+             * Only for products that are actually a deck. A Jumpstart pack
+             * or a Secret Lair drop is a pile of cards, not a 100-card
+             * Commander list, and offering to "build the deck" from one
+             * would make a deck that is illegal the moment it exists.
+             */}
+            {product.productType === "Commander Deck" ? (
+              <div className="mt-6">
+                <ProductDeckButton
+                  fileName={product.fileName}
+                  productName={product.name}
+                  locationId={deckLocation?.id ?? null}
+                  locationName={deckLocation?.name ?? null}
+                />
+              </div>
+            ) : null}
 
             {boards.map((board) => (
               <BoardTable

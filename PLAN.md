@@ -261,6 +261,15 @@ precon_cards      (id PK, file_name FK, board, scryfall_id, card_name,
                    mtgjson_set_code, collector_number, quantity, is_foil, is_etched,
                    UNIQUE (file_name, board, scryfall_id, is_foil, is_etched))
 
+-- Phase 5 dropped two sketched columns from `decks`.
+-- `commander_printing_id` cannot hold a pair, and Commander legally allows
+-- two commanders (Partner, Partner with, Friends forever, Doctor's
+-- companion, Choose a Background) -- so the command zone is
+-- `deck_cards.board = 'commander'` instead. That also matches how MTGJSON
+-- ships precons, which makes "build the deck from this product" a copy.
+-- `is_physical` went too: it duplicated "does any card claim a copy", which
+-- `is_allocated` already answers, and two columns for one fact can disagree.
+
 -- Phase 4 replaced the four sketched product tables with these two.
 -- `sealed_products` and `product_contents` modelled boosters and bundles,
 -- whose contents are random: "add a booster box" cannot name a card, so
@@ -278,10 +287,11 @@ collection_items  (id PK, printing_id FK, finish, condition,
                    acquired_price_cents, notes,
                    UNIQUE (printing_id, finish, condition, location_id))
 completion_targets(... see §4 ...)
-decks             (id PK, name, format, commander_printing_id FK NULL, notes,
-                   is_physical, location_id FK NULL)
+decks             (id PK, name, format, notes, location_id FK NULL,
+                   UNIQUE lower(name))
 deck_cards        (id PK, deck_id FK, oracle_id FK, printing_id FK NULL,
-                   board, quantity, is_allocated)
+                   board, quantity, is_allocated,
+                   UNIQUE (deck_id, board, oracle_id))
 price_snapshots   (printing_id FK, finish, source, snapshot_date, price_cents,
                    PRIMARY KEY (printing_id, finish, source, snapshot_date))
 ingest_runs       (id PK, source, started_at, finished_at, status, row_count,
@@ -309,8 +319,15 @@ references `printings.scryfall_id` with `ON DELETE RESTRICT`.)
 
 **Don't double-count cards in built decks.** `deck_cards.is_allocated` separates a deck that
 physically exists in a box (cards are spoken for) from a deck that's only a list (cards are
-still in the binder, available to other decks). Completion and "available to build with" both
-read it.
+still in the binder, available to other decks). "Available to build with" reads it.
+
+*Settled in Phase 5:* marking a deck built moves **nothing** in `collection_items`. It records
+a claim, and availability is the subtraction `owned - claimed by other decks`. Moving a hundred
+collection rows into a deck location would be a write that can half-fail against the one table
+that cannot be regenerated, and unbuilding would have to move them all back and guess where
+from. A claim is one UPDATE either way, and it leaves the collection as the single record of
+where a card physically is. The subtraction must exclude the deck doing the asking, or every
+card you just claimed reads as unavailable to the deck holding it.
 
 ### The query that justifies the whole stack
 
@@ -421,11 +438,22 @@ so "add a booster box" cannot name a card. And auto-creating the matching deck w
 Phase 5, which is where the `decks` tables arrive — the add does offer creating a deck *box*
 (a location) inline, so the cards land somewhere of their own either way.
 
-**Phase 5 — Commander decks**
-Deck CRUD, inline owned-vs-needed while adding, Commander rules only: 100-card singleton, color
-identity via `color_identity <@` the commander's, Commander banned list from
-`oracle_cards.legalities`. "Cards I don't own" buy list. Physical allocation to a location.
+**Phase 5 — Commander decks** ✅
+Deck CRUD, keyboard card search with owned/free/legal/on-colour on the row you press Enter on,
+and the Commander rules: 100 cards, singleton with the three printed exceptions, colour
+identity from the commanders, and the banned list from `oracle_cards.legalities`. Downloadable
+buy list. Allocation that stops two decks planning the same card. "Build the deck" from a
+precon, which is the half of Phase 4 that waited for these tables.
 → *Done when:* you can build a deck and know exactly what's left to buy.
+
+*Three things the rules do that a simpler reading would get wrong.* Singleton exceptions are
+read off the card (`A deck can have any number of cards named ~`, `up to nine cards named ~`)
+rather than kept as a list, so a new card with the ability works the day it is ingested — and
+snow basics are `Basic Snow Land`, which a `Basic Land` prefix test would call illegal.
+Backgrounds are commanders despite being enchantments that never say so: 30 of the 31 printed
+would otherwise be rejected. And a two-commander pair this cannot verify is a **warning**, not
+an error, because the list of legal pairings keeps growing and calling a legal deck illegal is
+the worse failure.
 
 **Phase 6 — Bulk paste import**
 Decklist text and CSV, with a review-and-resolve step for ambiguous names. Deliberately *after*

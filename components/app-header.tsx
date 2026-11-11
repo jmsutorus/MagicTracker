@@ -5,7 +5,8 @@ import { signOut } from "@/auth";
 export function AppHeader({
   current,
 }: {
-  current?: "dashboard" | "cards" | "collection" | "sets" | "products";
+  current?:
+    "dashboard" | "cards" | "collection" | "sets" | "products" | "decks";
 }) {
   const navClass = (key: string) =>
     `text-sm ${
@@ -25,6 +26,9 @@ export function AppHeader({
           </Link>
           <Link href="/collection" className={navClass("collection")}>
             Collection
+          </Link>
+          <Link href="/decks" className={navClass("decks")}>
+            Decks
           </Link>
           <Link href="/sets" className={navClass("sets")}>
             Sets

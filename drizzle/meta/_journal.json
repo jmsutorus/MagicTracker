@@ -57,6 +57,13 @@
       "when": 1794357621046,
       "tag": "0007_precon_products",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794359334773,
+      "tag": "0008_decks",
+      "breakpoints": true
     }
   ]
 }

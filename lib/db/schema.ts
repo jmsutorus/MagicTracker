@@ -329,6 +329,15 @@ export {
   PRECON_BOARD_LABELS,
 } from "@/lib/products/constants";
 export type { PreconBoard } from "@/lib/products/constants";
+export {
+  COMMANDER_DECK_SIZE,
+  COUNTED_BOARDS,
+  DECK_BOARDS,
+  DECK_BOARD_LABELS,
+  DECK_FORMATS,
+  MAX_COMMANDERS,
+} from "@/lib/decks/constants";
+export type { DeckBoard, DeckFormat } from "@/lib/decks/constants";
 
 export const locations = pgTable(
   "locations",
@@ -656,6 +665,126 @@ export const preconCards = pgTable(
   ],
 );
 
+/**
+ * DECKS (decks / deck_cards)
+ *
+ * Human-owned and irreplaceable, like the collection: a decklist is a record
+ * of decisions, and nothing can regenerate it. So `deck_cards.oracle_id` is
+ * ON DELETE RESTRICT for the same reason `collection_items.printing_id` is —
+ * a card refresh that tried to remove a card somebody built a deck around
+ * must fail loudly rather than quietly editing the deck.
+ */
+
+export const decks = pgTable(
+  "decks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    name: text("name").notNull(),
+
+    /** Only `commander` today; see lib/decks/constants.ts. */
+    format: text("format").notNull().default("commander"),
+
+    notes: text("notes"),
+
+    /**
+     * Where the physical deck lives, if it has been built.
+     *
+     * Informational and nullable: a deck is a list first. ON DELETE SET NULL
+     * rather than RESTRICT because deleting a binder should not be blocked by
+     * a deck that merely points at it — the deck itself survives intact, it
+     * just stops claiming a shelf.
+     */
+    locationId: uuid("location_id").references(() => locations.id, {
+      onDelete: "set null",
+    }),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // Case-insensitive, like locations: two decks called "Zinnia" and
+    // "zinnia" are one deck somebody typed twice.
+    uniqueIndex("decks_name_lower_key").on(sql`lower(${table.name})`),
+    index("decks_location_idx").on(table.locationId),
+    check("decks_format_check", sql`${table.format} IN ('commander')`),
+  ],
+);
+
+/**
+ * One card in one deck.
+ *
+ * Keyed on `oracle_id`, not `printing_id`, because a decklist is a list of
+ * cards rather than of printings: Commander's singleton rule is about the
+ * name, color identity and legality are properties of the card, and "I want a
+ * Sol Ring" does not say which Sol Ring. `printing_id` is the optional answer
+ * to "which copy" — a preference, which is why it is nullable and ON DELETE
+ * SET NULL while the card itself restricts.
+ */
+export const deckCards = pgTable(
+  "deck_cards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    deckId: uuid("deck_id")
+      .notNull()
+      .references(() => decks.id, { onDelete: "cascade" }),
+
+    oracleId: uuid("oracle_id")
+      .notNull()
+      .references(() => oracleCards.oracleId, { onDelete: "restrict" }),
+
+    printingId: uuid("printing_id").references(() => printings.scryfallId, {
+      onDelete: "set null",
+    }),
+
+    /** commander | main | maybe */
+    board: text("board").notNull().default("main"),
+
+    quantity: integer("quantity").notNull().default(1),
+
+    /**
+     * This deck claims a physical copy of this card.
+     *
+     * No `collection_items` row is moved when a deck is built. Allocation is
+     * a claim recorded here, and "how many copies are free to build with" is
+     * a query: owned total minus the copies other decks have claimed. That
+     * keeps it reversible — unbuilding a deck is one UPDATE rather than a
+     * hundred card moves that could half-fail — and it keeps the collection
+     * the single record of where a card physically is.
+     */
+    isAllocated: boolean("is_allocated").notNull().default(false),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    /**
+     * One row per card per board. Copies live in `quantity`, so a playset of
+     * basics is one row — and in Commander every legal row but a basic (or a
+     * "any number of cards named" card) has quantity 1 anyway.
+     */
+    uniqueIndex("deck_cards_identity_key").on(
+      table.deckId,
+      table.board,
+      table.oracleId,
+    ),
+    index("deck_cards_deck_idx").on(table.deckId, table.board),
+    index("deck_cards_oracle_idx").on(table.oracleId),
+    index("deck_cards_allocated_idx").on(table.isAllocated),
+    check("deck_cards_quantity_check", sql`${table.quantity} > 0`),
+    check(
+      "deck_cards_board_check",
+      sql`${table.board} IN ('commander', 'main', 'maybe')`,
+    ),
+  ],
+);
+
 export type Set = typeof sets.$inferSelect;
 export type OracleCard = typeof oracleCards.$inferSelect;
 export type Printing = typeof printings.$inferSelect;
@@ -667,3 +796,6 @@ export type CollectionItem = typeof collectionItems.$inferSelect;
 export type CompletionTarget = typeof completionTargets.$inferSelect;
 export type PreconProduct = typeof preconProducts.$inferSelect;
 export type PreconCard = typeof preconCards.$inferSelect;
+export type Deck = typeof decks.$inferSelect;
+export type NewDeck = typeof decks.$inferInsert;
+export type DeckCard = typeof deckCards.$inferSelect;

@@ -221,6 +221,7 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run collection:smoke` | End-to-end check of the collection layer against the real database |
 | `npm run completion:smoke` | End-to-end check of set completion against the real database |
 | `npm run products:smoke` | End-to-end check of sealed-product add against the real database |
+| `npm run decks:smoke` | End-to-end check of the deck layer against the real database |
 | `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
 
 ## The collection
@@ -382,6 +383,57 @@ disagree about which row a copy lands in.
 **Adding twice adds twice.** Two boxes is two copies of each card, not an
 error. The undo subtracts what the product contributed and never more, so a
 Sol Ring that was in the box before the add is still there afterwards.
+
+## Decks
+
+`/decks` builds Commander decks and tells you what is left to buy. Only
+Commander is validated — "I mostly play Commander and sealed", and sealed has
+no decklist.
+
+**The command zone is a board, not a column.** PLAN.md §5 sketched
+`decks.commander_printing_id`, but Commander legally allows two commanders
+(Partner, Partner with, Friends forever, Doctor's companion, Choose a
+Background) and one column cannot hold a pair. So a commander is
+`deck_cards.board = 'commander'`, which also matches how MTGJSON ships
+precons — making "build the deck from this product" a straight copy.
+
+**Deck cards are keyed on `oracle_id`, not `printing_id`.** A decklist is a
+list of cards: singleton is about the name, and colour identity and legality
+are properties of the card. `printing_id` is the optional answer to "which
+copy", which is why it is nullable and `ON DELETE SET NULL` while the card
+itself is `RESTRICT` — a card refresh must never quietly edit a deck.
+
+**Allocation moves nothing.** Marking a deck built sets `is_allocated` on its
+cards; no `collection_items` row is touched. "How many copies are free to
+build with" is then
+
+```
+owned total  −  copies claimed by *other* decks
+```
+
+Moving a hundred collection rows into a deck location would be a write that
+can half-fail against the one table that cannot be regenerated, and
+unbuilding would have to move them back and guess where from. The `other` is
+load-bearing: without excluding the deck doing the asking, every card you just
+claimed reads as unavailable to the deck holding it. There is a smoke-test
+check for exactly that.
+
+**Three rules a simpler reading gets wrong.**
+
+| | |
+|---|---|
+| Singleton exceptions | Read off the card — `A deck can have any number of cards named ~`, `up to nine cards named ~` — so a new card with the ability works the day it is ingested |
+| Snow basics | Scryfall writes them `Basic Snow Land — Forest`; a `Basic Land` prefix test calls a legal snow deck illegal |
+| Backgrounds | Commanders despite being Legendary Enchantments that never say so — only 1 of the 31 printed says "can be your commander" |
+
+**An unverifiable commander pair is a warning, not an error.** The list of
+legal pairings keeps growing, and calling a legal deck illegal is worse than
+admitting the check could not confirm it. Everything else — size, singleton,
+banned, not-legal, colour identity, an ineligible commander — is an error.
+
+Nothing stops you *storing* an illegal deck. A deck mid-edit is illegal almost
+all of the time, so the rules engine reports rather than refuses; the legality
+panel is the verdict and the tables are just storage.
 
 ## How auth is structured
 

@@ -18,7 +18,8 @@
     "ingest:products": "tsx scripts/ingest-products.ts",
     "collection:smoke": "tsx scripts/collection-smoke.ts",
     "completion:smoke": "tsx scripts/completion-smoke.ts",
-    "products:smoke": "tsx scripts/products-smoke.ts"
+    "products:smoke": "tsx scripts/products-smoke.ts",
+    "decks:smoke": "tsx scripts/decks-smoke.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
