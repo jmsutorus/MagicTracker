@@ -161,7 +161,12 @@ export default async function ProductPage({
                 fileName={product.fileName}
                 productName={product.name}
                 boards={boards}
-                locations={locations.map((l) => ({ id: l.id, name: l.name }))}
+                locations={locations.map((l) => ({
+                  id: l.id,
+                  name: l.name,
+                  kind: l.kind,
+                  cardCount: l.cardCount,
+                }))}
                 canBuildDeck={product.productType === "Commander Deck"}
               />
             </div>

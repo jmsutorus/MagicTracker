@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AppHeader } from "@/components/app-header";
 import { LocationsManager } from "@/components/locations-manager";
 import { requireUser } from "@/lib/auth/dal";
+import { LOCATION_EXPLAINER } from "@/lib/collection/constants";
 import { listLocations } from "@/lib/collection/queries";
 
 export const metadata = { title: "Locations · MagicTracker" };
@@ -27,8 +28,11 @@ export default async function LocationsPage() {
         </div>
 
         <p className="mt-2 text-sm text-muted">
-          Where cards physically are. Every card has one, so entry defaults to{" "}
-          <span className="text-foreground">Unsorted</span> until you file it.
+          {LOCATION_EXPLAINER} Every card starts in{" "}
+          <span className="text-foreground">Unsorted</span> — the catch-all this
+          app seeds — until you file it somewhere else. The kind is a label for
+          you; nothing in the app behaves differently because of it, except that
+          a new deck box is what a precon is filed into.
         </p>
 
         <div className="mt-6">

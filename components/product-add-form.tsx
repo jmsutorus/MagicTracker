@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -10,7 +11,10 @@ import {
 } from "@/app/products/actions";
 import {
   CARD_CONDITIONS,
+  LOCATION_EXPLAINER,
+  LOCATION_KIND_LABELS,
   type CardCondition,
+  type LocationKind,
 } from "@/lib/collection/constants";
 import {
   DEFAULT_PRECON_BOARDS,
@@ -28,7 +32,21 @@ export type BoardSummary = {
   unresolved: number;
 };
 
-type LocationOption = { id: string; name: string };
+type LocationOption = {
+  id: string;
+  name: string;
+  kind: LocationKind;
+  /** Cards already filed there, so the dropdown says what each one is. */
+  cardCount: number;
+};
+
+/** "Shelf — Storage box · 412 cards", the whole answer on one line. */
+function describeLocation(location: LocationOption): string {
+  const kind = LOCATION_KIND_LABELS[location.kind];
+  const cards =
+    location.cardCount === 1 ? "1 card" : `${location.cardCount} cards`;
+  return `${location.name} — ${kind} · ${cards}`;
+}
 
 type Props = {
   fileName: string;
@@ -186,7 +204,14 @@ export function ProductAddForm({
   if (locations.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-surface-muted p-4 text-sm text-muted">
-        There is nowhere to put these cards yet. Create a location first.
+        There is nowhere to put these cards yet. {LOCATION_EXPLAINER}{" "}
+        <Link
+          href="/collection/locations"
+          className="underline underline-offset-4 hover:text-foreground"
+        >
+          Make one
+        </Link>{" "}
+        and come back.
       </div>
     );
   }
@@ -204,46 +229,63 @@ export function ProductAddForm({
           : ""}
       </p>
 
-      <div className="mt-3 flex flex-wrap gap-4">
-        <label className="flex flex-col gap-1">
-          <span className="text-sm">Where it goes</span>
-          <select
-            value={locationId}
-            disabled={busy}
-            onChange={(e) => setLocationId(e.target.value)}
-            className="w-56 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+      <div className="mt-4 rounded-lg border border-border bg-surface p-4">
+        <h3 className="text-sm font-medium">Which shelf are they going on?</h3>
+        <p className="mt-1 text-xs text-muted">
+          {LOCATION_EXPLAINER}{" "}
+          <Link
+            href="/collection/locations"
+            className="underline underline-offset-4 hover:text-foreground"
           >
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        </label>
+            See all {locations.length}
+          </Link>
+          .
+        </p>
 
-        <label className="flex flex-col gap-1">
-          <span className="text-sm">Condition</span>
-          <select
-            value={condition}
-            disabled={busy}
-            onChange={(e) => setCondition(e.target.value as CardCondition)}
-            className="w-28 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
-          >
-            {CARD_CONDITIONS.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="mt-3 flex flex-wrap items-end gap-4">
+          <label className="flex flex-col gap-1">
+            <span className="text-sm">Put them in</span>
+            <select
+              value={locationId}
+              disabled={busy}
+              onChange={(e) => setLocationId(e.target.value)}
+              className="w-72 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+            >
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {describeLocation(l)}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="flex flex-col gap-1">
-          <span className="text-sm">Or a new deck box</span>
-          <span className="flex gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="text-sm">Condition</span>
+            <select
+              value={condition}
+              disabled={busy}
+              onChange={(e) => setCondition(e.target.value as CardCondition)}
+              className="w-28 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+            >
+              {CARD_CONDITIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-4 border-t border-border pt-3">
+          <p className="text-sm">
+            Keeping the deck together? Give it its own box.
+          </p>
+          <span className="mt-2 flex flex-wrap gap-2">
             <input
               value={newLocation}
               disabled={creating || busy}
               placeholder={`${productName.slice(0, 24)}…`}
+              aria-label="Name for a new deck box"
               onChange={(e) => setNewLocation(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -251,7 +293,7 @@ export function ProductAddForm({
                   void createNewLocation();
                 }
               }}
-              className="w-48 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
+              className="w-56 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
             />
             <button
               type="button"
@@ -259,13 +301,16 @@ export function ProductAddForm({
               disabled={newLocation.trim().length === 0 || creating || busy}
               className="cursor-pointer rounded-lg border border-border bg-surface px-3 py-2 text-sm hover:text-foreground disabled:opacity-40"
             >
-              {creating ? "…" : "Create"}
+              {creating ? "…" : "Create this deck box"}
             </button>
           </span>
-          <span className="text-xs text-muted">
-            Created as a deck box, and selected above.
-          </span>
-        </label>
+          <p className="mt-2 text-xs text-muted">
+            Creates a new location of kind{" "}
+            <span className="text-foreground">{LOCATION_KIND_LABELS.deck}</span>{" "}
+            with that name and selects it above. Nothing is created until you
+            press the button.
+          </p>
+        </div>
       </div>
 
       <fieldset className="mt-4">

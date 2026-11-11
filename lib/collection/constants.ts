@@ -19,6 +19,29 @@ export const LOCATION_KINDS = [
 export type LocationKind = (typeof LOCATION_KINDS)[number];
 
 /**
+ * What each kind is called where a person reads it.
+ *
+ * The stored values are terse because they are column values; "box" and
+ * "deck" on screen read as jargon, and "deck" in particular collides with
+ * the app's other meaning of the word — a decklist. These labels are the
+ * only spelling the UI should use.
+ */
+export const LOCATION_KIND_LABELS: Record<LocationKind, string> = {
+  binder: "Binder",
+  box: "Storage box",
+  deck: "Deck box",
+  tradeable: "Trade pile",
+  sold: "Sold",
+};
+
+/**
+ * One sentence saying what a location is, for the screens that ask you to
+ * pick one before you have been told.
+ */
+export const LOCATION_EXPLAINER =
+  "A location is the physical place a card sits — a binder, a deck box, a shelf. Every card is in exactly one.";
+
+/**
  * Which finishes a copy can be in. A copy's finish must also be one of the
  * printing's own `finishes` — a nonfoil-only printing has no foil version to
  * own — and the entry path checks that rather than trusting the client.
@@ -45,7 +68,12 @@ export const DEFAULT_LOCATION_NAME = "Unsorted";
  * (PLAN.md §4 listed three values. `etched` is the fourth because the
  * alternative was making `foil` mean two different things.)
  */
-export const COMPLETION_FINISHES = ["any", "nonfoil", "foil", "etched"] as const;
+export const COMPLETION_FINISHES = [
+  "any",
+  "nonfoil",
+  "foil",
+  "etched",
+] as const;
 export type CompletionFinish = (typeof COMPLETION_FINISHES)[number];
 
 /** The scope flags that define "complete" for one set. */

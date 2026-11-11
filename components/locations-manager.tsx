@@ -8,7 +8,10 @@ import {
   deleteLocationAction,
   renameLocationAction,
 } from "@/app/collection/actions";
-import { LOCATION_KINDS } from "@/lib/collection/constants";
+import {
+  LOCATION_KINDS,
+  LOCATION_KIND_LABELS,
+} from "@/lib/collection/constants";
 import type { LocationRow } from "@/lib/collection/queries";
 
 /**
@@ -100,7 +103,7 @@ export function LocationsManager({ locations }: { locations: LocationRow[] }) {
             >
               {LOCATION_KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {k}
+                  {LOCATION_KIND_LABELS[k]}
                 </option>
               ))}
             </select>
@@ -156,7 +159,9 @@ export function LocationsManager({ locations }: { locations: LocationRow[] }) {
                     l.name
                   )}
                 </td>
-                <td className="px-4 py-2 text-muted">{l.kind}</td>
+                <td className="px-4 py-2 text-muted">
+                  {LOCATION_KIND_LABELS[l.kind]}
+                </td>
                 <td className="px-4 py-2 text-right font-mono">
                   {l.cardCount.toLocaleString()}
                 </td>
@@ -201,7 +206,10 @@ export function LocationsManager({ locations }: { locations: LocationRow[] }) {
                         delete
                       </button>
                     ) : (
-                      <span className="text-muted" title="Only empty locations can be deleted">
+                      <span
+                        className="text-muted"
+                        title="Only empty locations can be deleted"
+                      >
                         —
                       </span>
                     )}

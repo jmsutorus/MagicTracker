@@ -8,11 +8,16 @@ import {
   createLocationAction,
 } from "@/app/collection/actions";
 import type { CardSearchResult } from "@/lib/cards/search";
-import type { EntryPrinting, EntrySet, LocationRow } from "@/lib/collection/queries";
+import type {
+  EntryPrinting,
+  EntrySet,
+  LocationRow,
+} from "@/lib/collection/queries";
 import {
   CARD_CONDITIONS,
   CARD_FINISHES,
   LOCATION_KINDS,
+  LOCATION_KIND_LABELS,
   type CardCondition,
   type CardFinish,
 } from "@/lib/collection/constants";
@@ -71,7 +76,10 @@ export function CollectionEntry({ locations, sets, defaultLocationId }: Props) {
     knownLocations.find((l) => l.id === locationId)?.name ?? "Unsorted";
 
   const commit = useCallback(
-    async (printing: { scryfallId: string; label: string }, quantity: number) => {
+    async (
+      printing: { scryfallId: string; label: string },
+      quantity: number,
+    ) => {
       setBusy(true);
       setError(null);
       try {
@@ -166,7 +174,10 @@ export function CollectionEntry({ locations, sets, defaultLocationId }: Props) {
                 itemCount: 0,
                 cardCount: 0,
               },
-            ].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
+            ].sort(
+              (a, b) =>
+                a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
+            ),
           );
           setLocationId(created.id);
         }}
@@ -174,7 +185,12 @@ export function CollectionEntry({ locations, sets, defaultLocationId }: Props) {
       />
 
       {mode === "number" ? (
-        <NumberMode sets={sets} onCommit={commit} busy={busy} onError={setError} />
+        <NumberMode
+          sets={sets}
+          onCommit={commit}
+          busy={busy}
+          onError={setError}
+        />
       ) : (
         <NameMode onCommit={commit} busy={busy} onError={setError} />
       )}
@@ -304,7 +320,7 @@ function StickyControls({
           >
             {locations.map((l) => (
               <option key={l.id} value={l.id}>
-                {l.name}
+                {l.name} — {LOCATION_KIND_LABELS[l.kind]}
               </option>
             ))}
           </select>
@@ -339,7 +355,7 @@ function StickyControls({
             >
               {LOCATION_KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {k}
+                  {LOCATION_KIND_LABELS[k]}
                 </option>
               ))}
             </select>
@@ -465,7 +481,9 @@ function NumberMode({
       setPendingQuantity(quantity);
       setCandidates(found);
       setActiveIndex(0);
-      setNote(`${found.length} printings share #${data.collectorNumber} — pick one.`);
+      setNote(
+        `${found.length} printings share #${data.collectorNumber} — pick one.`,
+      );
     } catch {
       onError("That did not reach the server. Check your connection.");
     } finally {
@@ -493,7 +511,8 @@ function NumberMode({
         <div>
           <label className="flex flex-col gap-1">
             <span className="text-xs text-muted">
-              Collector number in {pinned.code.toUpperCase()} — type and press Enter
+              Collector number in {pinned.code.toUpperCase()} — type and press
+              Enter
             </span>
             <input
               ref={numberRef}
@@ -815,13 +834,16 @@ function NameMode({
         const res = await fetch(
           `/api/cards/printings?oracleId=${encodeURIComponent(result.oracleId)}`,
         );
-        if (!res.ok) throw new Error(`Could not load printings (${res.status})`);
+        if (!res.ok)
+          throw new Error(`Could not load printings (${res.status})`);
         const data = (await res.json()) as { printings: EntryPrinting[] };
         setPrintings(data.printings);
         setPrintingIndex(0);
         setChosenName(result.name);
       } catch (err) {
-        onError(err instanceof Error ? err.message : "Could not load printings");
+        onError(
+          err instanceof Error ? err.message : "Could not load printings",
+        );
       }
     },
     [onCommit, onError, reset],
