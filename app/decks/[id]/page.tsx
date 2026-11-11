@@ -1,9 +1,11 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
 import { DeckCardControls } from "@/components/deck-card-controls";
 import { DeckCardSearch } from "@/components/deck-card-search";
+import { DeckShare } from "@/components/deck-share";
 import { DeckToolbar } from "@/components/deck-toolbar";
 import { ProgressBar } from "@/components/progress-bar";
 import { requireUser } from "@/lib/auth/dal";
@@ -16,6 +18,7 @@ import {
 } from "@/lib/decks/constants";
 import { formatColorIdentity } from "@/lib/decks/legality";
 import { getDeck, type DeckCardRow } from "@/lib/decks/queries";
+import { getShareState } from "@/lib/decks/share";
 
 export const metadata = { title: "Deck · MagicTracker" };
 
@@ -33,8 +36,27 @@ export default async function DeckPage({
   const { id } = await params;
   if (!UUID_RE.test(id)) notFound();
 
-  const [deck, locations] = await Promise.all([getDeck(id), listLocations()]);
+  const [deck, locations, share, requestHeaders] = await Promise.all([
+    getDeck(id),
+    listLocations(),
+    getShareState(id),
+    headers(),
+  ]);
   if (!deck) notFound();
+
+  /*
+   * The origin to print in the share box, taken from the request so it is
+   * right at localhost and at the deployed domain without a configured base
+   * URL. The Host header is client-controlled, which matters when a value is
+   * used to redirect or to send mail — here it only decides what the owner
+   * sees in a read-only input next to a Copy button.
+   */
+  const forwardedHost = requestHeaders.get("x-forwarded-host");
+  const host = forwardedHost ?? requestHeaders.get("host") ?? "";
+  const proto =
+    requestHeaders.get("x-forwarded-proto") ??
+    (host.startsWith("localhost") ? "http" : "https");
+  const origin = host ? `${proto}://${host}` : "";
 
   const counted = deck.cards.filter((c) => c.board !== "maybe");
   const ownedCopies = counted.reduce(
@@ -175,6 +197,20 @@ export default async function DeckPage({
             cardCount={deck.legality.cardCount}
           />
         </div>
+
+        <section className="mt-6 rounded-lg border border-border bg-surface-muted p-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+            Share
+          </h2>
+          <div className="mt-2">
+            <DeckShare
+              deckId={deck.id}
+              token={share.token}
+              createdAt={share.createdAt}
+              origin={origin}
+            />
+          </div>
+        </section>
 
         <div className="mt-6">
           <DeckCardSearch

@@ -39,8 +39,13 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   /**
-   * Page routes only — the login page, all of /api, and static assets are
-   * excluded.
+   * Page routes only — the login page, the shared decklists, all of /api, and
+   * static assets are excluded.
+   *
+   * /share is excluded because those pages are *meant* to render for someone
+   * with no session: the token in the URL is the authorization, checked by
+   * lib/decks/share.ts, which returns null for a token that was revoked or
+   * never issued. Nothing under /share reads the collection.
    *
    * /api is excluded on purpose. Redirecting an API call to /login would hand
    * a `fetch()` a 307 and a page of HTML, which is useless to the caller.
@@ -49,6 +54,6 @@ export const config = {
    * is weakened by this.
    */
   matcher: [
-    "/((?!login|api/|_next/static|_next/image|favicon.ico|robots.txt|manifest.webmanifest).*)",
+    "/((?!login|share/|api/|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|icons/|robots.txt|manifest.webmanifest).*)",
   ],
 };

@@ -528,9 +528,42 @@ plotted mark has to pass, so `--chart-line` is the same hue snapped to a step th
 chosen separately for light and dark and run through the palette validator against the real
 surfaces.
 
-**Phase 8 — Polish**
-PWA manifest for a phone app icon, scheduled database export to a file you keep, public
-read-only deck share links.
+**Phase 8 — Polish** ✅
+Web app manifest and icons for a phone home screen, an export you can download plus a weekly
+backup to a bucket, and unlisted read-only deck share links.
+→ *Done when:* it installs to a phone, your data exists outside this database, and you can send
+someone a decklist.
+
+*The manifest, and nothing else.* No service worker. §10 keeps the offline write outbox
+deferred, and a worker that cached pages without one would mean a phone quietly showing
+yesterday's collection with no way to tell — worse than a page that admits it needs the
+network. What was actually missing is the icon and the standalone window, which is all a
+manifest plus `app/icon.svg`, `app/apple-icon.png` and two 512s takes. Two 512s because Android
+draws `any` as-is and crops `maskable` to the device's shape, so the maskable one is full-bleed
+with the art inside the safe zone.
+
+*The export is JSON with names in it.* Five tables — locations, collection, decks, deck cards,
+completion rules — and every row carries the card's name, set and collector number next to the
+ids. A backup of UUIDs is a backup of a database; a backup with names in it is a backup of a
+collection, and can be re-entered or re-imported if the ids ever stop matching. The card tables
+are deliberately absent: they rebuild from Scryfall in 35 seconds, and including them would
+turn a 200 KB file you can read into an 80 MB one you cannot.
+
+*The weekly copy goes to a bucket the job cannot read.* `scripts/export-backup.ts` runs last in
+the Cloud Run job and uploads with a token from the metadata server — no client library for one
+HTTPS request. The job's service account holds `storage.objectCreator` and nothing else: it can
+write a new backup but cannot read, overwrite or delete one, which is why every object name
+carries a timestamp and why a lifecycle rule, not the job, does the pruning. An unattended
+weekly process with delete rights over the only off-database copy is a shape worth designing
+out.
+
+*A share link is unlisted, not public.* 16 random bytes in the URL, `robots: noindex` inherited
+from the root layout, and nothing linking to it. Revoking is one UPDATE and re-sharing mints a
+**new** token, so a link you killed cannot come back. What a visitor sees is narrower than what
+you see — the list, the colour identity, the verdict — and never the notes, the location, what
+you own, what it is worth, or what is still to buy. Those are facts about you; the list is a
+fact about the deck. The smoke suite asserts that against the serialised payload rather than
+field by field, because that is the kind of leak that stays invisible until it matters.
 
 ---
 

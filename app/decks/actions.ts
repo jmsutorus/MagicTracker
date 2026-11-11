@@ -17,6 +17,7 @@ import {
   setDeckNotes,
   type AddDeckCardInput,
 } from "@/lib/decks/mutations";
+import { createShareLink, revokeShareLink } from "@/lib/decks/share";
 
 /**
  * Server actions for decks.
@@ -137,5 +138,26 @@ export async function createDeckFromProductAction(
     revalidateDeck(result.id);
     revalidatePath(`/products/${fileName}`);
   }
+  return result;
+}
+
+/**
+ * Share links.
+ *
+ * Creating one is a write that makes a deck readable without signing in, so
+ * it goes through the same `requireUser()` as everything else here — and the
+ * link it returns is the only thing that ever leaves.
+ */
+export async function createShareLinkAction(deckId: string) {
+  await requireUser();
+  const result = await createShareLink(deckId);
+  if (result.ok) revalidateDeck(deckId);
+  return result;
+}
+
+export async function revokeShareLinkAction(deckId: string) {
+  await requireUser();
+  const result = await revokeShareLink(deckId);
+  if (result.ok) revalidateDeck(deckId);
   return result;
 }

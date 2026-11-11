@@ -27,3 +27,4 @@ public/
 drizzle/
 .github/
 *.md
+backups/

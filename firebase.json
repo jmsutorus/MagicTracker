@@ -10,6 +10,7 @@
       ".next",
       ".git",
       ".firebase",
+      "backups",
       "**/*.log",
       "**/.DS_Store"
     ]

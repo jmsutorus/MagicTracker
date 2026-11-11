@@ -1,17 +1,18 @@
 # MagicTracker
 
 Personal Magic: The Gathering collection tracker — collection entry, set
-completion, sealed product adds, Commander decks, pasted-list import, and
-weekly value tracking. Built to run on free tiers indefinitely, with no
-subscription.
+completion, sealed product adds, Commander decks, pasted-list import, weekly
+value tracking, and shareable decklists. Built to run on free tiers
+indefinitely, with no subscription.
 
 See [PLAN.md](./PLAN.md) for the architecture, data model, and phase plan,
 including why the stack is what it is.
 
-**Current state: Phases 0–7 complete.** Card search, collection entry with
-locations, per-set completion, precon adds, Commander decks with a legality
-engine and buy list, paste import, and the weekly price snapshot with its
-value page all work. Phase 8 is polish (PWA icon, exports, share links).
+**Current state: all eight phases complete.** Card search, collection entry
+with locations, per-set completion, precon adds, Commander decks with a
+legality engine and buy list, paste import, the weekly price snapshot with
+its value page, a home-screen icon, exports with a weekly backup, and
+unlisted deck share links.
 
 ---
 
@@ -43,6 +44,7 @@ npm run dev
 | `AUTH_URL` | `http://localhost:3000` locally; the deployed origin in production. |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | From the Google OAuth client below. |
 | `ALLOWED_EMAILS` | Comma-separated allowlist. **Empty means nobody can sign in** — it fails closed on purpose. |
+| `BACKUP_BUCKET` | Job-only, set by `scripts/deploy-ingest-job.ps1`. Where the weekly backup goes; unset locally, so `npm run backup` writes to `./backups/`. |
 
 Keep `sslmode=verify-full` in the connection strings. `pg` currently treats
 `require` as `verify-full` anyway, but that changes in pg v9, so being explicit
@@ -117,23 +119,29 @@ which pushes to `main` build automatically.
 ### Card data ingest
 
 The weekly refresh is a **Cloud Run Job** started by **Cloud Scheduler** —
-not a GitHub Action, and not a route in the app. It runs two jobs in
+not a GitHub Action, and not a route in the app. It runs four steps in
 sequence, as separate child processes (`scripts/ingest.ts`):
 
 1. `ingest-cards.ts` — Scryfall bulk cards. ~90 seconds, peaks ~240 MB heap.
 2. `ingest-products.ts` — the MTGJSON sealed-product catalog. ~3 seconds.
+3. `ingest-prices.ts` — prices for the printings you own, and the week's total.
+4. `export-backup.ts` — the backup of what cannot be regenerated.
 
-Neither depends on the other, so a failure in one does not skip the other and
-the exit code is non-zero if either failed.
+None depends on another, so a failure in one does not skip the rest and the
+exit code is non-zero if any failed. The order still matters: prices run
+after the cards so a card entered this week is priced in the same run that
+ingested its printing, and the backup runs last so its file includes
+everything the others changed.
 
 | | |
 |---|---|
-| Job | `ingest-cards`, region `us-east5` (named for the first of its two jobs) |
+| Job | `ingest-cards`, region `us-east5` (named for the first of its steps) |
 | Schedule | `ingest-cards-weekly`, region `us-east4`, Mondays 09:17 UTC |
 | Image | `us-east5-docker.pkg.dev/magictracker-514320/magictracker/ingest-cards` |
 | Built from | `Dockerfile.ingest` via `cloudbuild.ingest.yaml` |
-| Runs as | `mtg-ingest@` — holds `secretAccessor` on one secret and nothing else |
+| Runs as | `mtg-ingest@` — `secretAccessor` on one secret, `objectCreator` on the backup bucket, nothing else |
 | Started by | `mtg-ingest-scheduler@` — holds `run.invoker` on this one job and nothing else |
+| Backups to | `gs://magictracker-514320-backups`, public access prevented, pruned after 400 days |
 
 Cloud Scheduler is not offered in `us-east5`, which is why the trigger sits in
 `us-east4` and calls across. It sends one API request a week, so its latency
@@ -221,6 +229,7 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run ingest:cards` | Load Scryfall bulk data into the card tables. `-- --force` re-ingests an unchanged file |
 | `npm run ingest:products` | Load the MTGJSON sealed-product catalog. `-- --force` re-ingests an unchanged version |
 | `npm run ingest:prices` | Price the printings you own and record the week's total |
+| `npm run backup` | Write the export to `BACKUP_BUCKET`, or to `./backups/` when it is unset |
 | `scripts/search-smoke.ts` | Eyeball search ranking against the real database (`npx tsx`) |
 | `npm run collection:smoke` | End-to-end check of the collection layer against the real database |
 | `npm run completion:smoke` | End-to-end check of set completion against the real database |
@@ -228,6 +237,7 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run decks:smoke` | End-to-end check of the deck layer against the real database |
 | `npm run import:smoke` | End-to-end check of paste import against the real database |
 | `npm run prices:smoke` | End-to-end check of the price layer against the real database and Scryfall |
+| `npm run polish:smoke` | End-to-end check of share links and the export against the real database |
 | `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
 
 ## The collection
@@ -554,6 +564,70 @@ purchase price and a current one.
 days back — not "the row exactly 30 days ago", which a weekly job never has —
 and ranks by the change across the copies you own, since thirty lands up a
 nickel moves a collection more than one card up a dollar.
+
+## Your data, and sharing a deck
+
+### The export
+
+**Download a copy** on the dashboard (`GET /api/export`) gives you one JSON
+file: locations, every collection row, every deck and its cards, and your
+per-set completion rules. Every row carries the card's name, set code and
+collector number beside the ids, so the file is still useful if the ids ever
+stop matching — or to any tool that has never heard of this app.
+
+The card tables are **not** in it. They rebuild from Scryfall in about 35
+seconds, and including 110k printings would turn a file you can read into one
+you cannot.
+
+The same export runs as the last step of the weekly job
+(`scripts/export-backup.ts`) and is gzipped to a bucket:
+
+- `BACKUP_BUCKET` set → `gs://<bucket>/backups/magictracker-<timestamp>.json.gz`
+- unset → `./backups/magictracker-<date>.json.gz` (gitignored)
+
+The upload is a plain HTTPS POST with a token from the metadata server, so it
+adds no dependency. The job's service account holds **`storage.objectCreator`
+and nothing else** — it can write a new backup but cannot read, overwrite or
+delete one. That is why object names carry a timestamp rather than being
+overwritten, and why a bucket lifecycle rule does the pruning.
+`scripts/deploy-ingest-job.ps1` creates the bucket, the rule and the binding.
+
+### Share links
+
+A deck can hand out an **unlisted** read-only link: `/share/<token>`, where
+the token is 16 random bytes. It is unlisted rather than public — the token is
+unguessable, the page is `noindex`, and nothing links to it.
+
+| The visitor sees | The visitor never sees |
+|---|---|
+| Card names, counts, boards, mana costs, pinned printings | What you own, or what is still to buy |
+| Colour identity and the legality verdict | What the deck or the cards are worth |
+| When the deck was last changed | The deck's notes, or where it is kept |
+
+Turning a link off is one UPDATE and takes effect immediately; **Replace it**
+mints a new token and kills the old URL, so a link you handed out cannot be
+resurrected. A revoked token and a token that never existed both 404 — from
+outside they are indistinguishable.
+
+`/share` and `/api/share` are excluded from `proxy.ts` because they are meant
+to render with no session; the token *is* the authorization, and
+`lib/decks/share.ts` is the only query in the app that answers to someone who
+is not signed in.
+
+## Installing it on a phone
+
+`app/manifest.ts` plus `app/icon.svg`, `app/apple-icon.png` and the two 512px
+icons in `public/icons/` are enough for "Add to Home Screen" to produce a real
+app icon that opens without browser chrome.
+
+There is deliberately **no service worker**. Offline writes are deferred
+(PLAN.md §10), and a worker that cached pages without an outbox would show
+yesterday's collection with no way to tell.
+
+Two 512px icons, because Android treats them differently: the `any` one is
+drawn as-is and keeps its rounded corners, while the `maskable` one is
+full-bleed with the art inside the safe zone because the launcher crops it to
+whatever shape the device prefers.
 
 ## How auth is structured
 

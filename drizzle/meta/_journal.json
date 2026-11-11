@@ -71,6 +71,13 @@
       "when": 1794369609456,
       "tag": "0009_prices",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794404870212,
+      "tag": "0010_deck_share",
+      "breakpoints": true
     }
   ]
 }

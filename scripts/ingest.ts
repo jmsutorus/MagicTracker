@@ -1,10 +1,11 @@
 /**
- * The scheduled ingest, as the Cloud Run Job runs it.  `npm run ingest`
+ * The scheduled job, as Cloud Run runs it.  `npm run ingest`
  *
- * Three independent jobs, in order:
+ * Four independent steps, in order:
  *   1. scripts/ingest-cards.ts    — Scryfall bulk cards (the big one).
  *   2. scripts/ingest-products.ts — the MTGJSON sealed-product catalog.
  *   3. scripts/ingest-prices.ts   — prices for the printings you own.
+ *   4. scripts/export-backup.ts   — a backup of what cannot be regenerated.
  *
  * They run as separate child processes rather than as imported functions, for
  * two reasons. The card ingest streams a ~500 MB expanded file and peaks
@@ -22,20 +23,24 @@
  * all are attempted, all are reported, and the exit code is non-zero if any
  * failed.
  *
- * The order is still deliberate. Prices run last so that a card bought and
- * entered this week is priced in the same run that first ingested its
- * printing, rather than waiting a week for the next one.
+ * The order is still deliberate. Prices run after the cards so that a card
+ * bought and entered this week is priced in the same run that first ingested
+ * its printing, rather than waiting a week for the next one — and the backup
+ * runs last so the file it writes includes whatever the three before it
+ * changed.
  *
  * Arguments are passed through, so `--args=--force` on the Cloud Run Job
- * reaches all three. The price job has nothing to force — there is no
- * upstream version for it to compare against — so it accepts the flag and
- * ignores it rather than failing on an argument it did not expect.
+ * reaches all four. The price job and the backup have nothing to force —
+ * there is no upstream version for either to compare against — so they accept
+ * the flag and ignore it rather than failing on an argument they did not
+ * expect.
  */
 import { spawnSync } from "node:child_process";
 const SCRIPTS = [
   "scripts/ingest-cards.ts",
   "scripts/ingest-products.ts",
   "scripts/ingest-prices.ts",
+  "scripts/export-backup.ts",
 ];
 
 function main(): void {
@@ -78,7 +83,7 @@ function main(): void {
     process.exit(1);
   }
 
-  console.log("\ningest finished: both jobs succeeded");
+  console.log(`\ningest finished: all ${SCRIPTS.length} steps succeeded`);
 }
 
 main();

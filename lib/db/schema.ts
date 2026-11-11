@@ -689,6 +689,20 @@ export const decks = pgTable(
     notes: text("notes"),
 
     /**
+     * The unlisted share link, when one has been handed out.
+     *
+     * Null until you ask for a link, and null again the moment you revoke
+     * one, so a deck is private unless you did something about it. The token
+     * is 16 random bytes rather than the deck's id: the id appears in your
+     * own URLs and is a foreign key everywhere, so sharing it would mean
+     * handing out a key you cannot change without rebuilding the deck.
+     * Revoking is one UPDATE, and a new link is a new token — the old URL
+     * dies rather than being re-pointed.
+     */
+    shareToken: text("share_token"),
+    shareCreatedAt: timestamp("share_created_at", { withTimezone: true }),
+
+    /**
      * Where the physical deck lives, if it has been built.
      *
      * Informational and nullable: a deck is a list first. ON DELETE SET NULL
@@ -712,6 +726,15 @@ export const decks = pgTable(
     // "zinnia" are one deck somebody typed twice.
     uniqueIndex("decks_name_lower_key").on(sql`lower(${table.name})`),
     index("decks_location_idx").on(table.locationId),
+    /*
+     * Partial, because most decks have no token and NULLs are not equal to
+     * each other anyway: a plain unique index would work, but the partial one
+     * says what is actually being enforced — two live links cannot collide —
+     * and is the index the public lookup uses.
+     */
+    uniqueIndex("decks_share_token_key")
+      .on(table.shareToken)
+      .where(sql`${table.shareToken} IS NOT NULL`),
     check("decks_format_check", sql`${table.format} IN ('commander')`),
   ],
 );

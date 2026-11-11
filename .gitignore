@@ -44,3 +44,7 @@ next-env.d.ts
 # firebase
 firebase-debug.log*
 .firebase/
+
+# local backups written by `npm run backup` when BACKUP_BUCKET is unset —
+# this is your data, and it does not belong in a git remote
+backups/

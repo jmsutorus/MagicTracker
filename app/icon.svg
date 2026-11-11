@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="MagicTracker">
+  <!--
+    A card, checked off. The collection is the point of the app and "do I
+    have this one" is the question it answers, so the mark is the subject and
+    the card is the frame.
+
+    Three flat tones and one stroke: anything finer disappears at the 16px a
+    browser tab actually draws this at.
+  -->
+  <rect width="512" height="512" rx="112" fill="#8a5a2b" />
+  <g transform="rotate(-8 256 256)">
+    <rect x="152" y="112" width="208" height="288" rx="22" fill="#faf7f1" />
+    <path
+      d="M202 266 L240 306 L314 210"
+      fill="none"
+      stroke="#8a5a2b"
+      stroke-width="34"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+</svg>

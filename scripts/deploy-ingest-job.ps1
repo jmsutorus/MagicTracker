@@ -10,8 +10,12 @@
   one service account that holds nothing but run.invoker on this one job.
 
   Two service accounts, because they want different things:
-    mtg-ingest            runs the container; reads one secret
+    mtg-ingest            runs the container; reads one secret, writes
+                          (but cannot read or delete) backups
     mtg-ingest-scheduler  starts the job; cannot read the secret
+
+  It also creates the backup bucket the weekly job writes to, with public
+  access prevented and a lifecycle rule that prunes old copies.
 
   The regions are not a typo. The job runs in us-east5 (Columbus, Ohio)
   because the Neon database is in AWS us-east-2 (also Ohio) and the ingest is
@@ -30,6 +34,15 @@ param(
   [string]$JobName         = "ingest-cards",
   [string]$RepoName        = "magictracker",
   [string]$SecretName      = "DATABASE_URL_UNPOOLED",
+  # Where the weekly backup lands. Left empty it is "<project>-backups":
+  # bucket names are globally unique, so the project id is the prefix.
+  # -NoBackupBucket skips the bucket and leaves the job without
+  # BACKUP_BUCKET, which makes the backup step write nowhere it can keep.
+  [string]$BackupBucket    = "",
+  [switch]$NoBackupBucket,
+  # How long a backup is kept. 400 days so that a year-old file is still
+  # there when you notice you need it.
+  [int]$BackupRetentionDays = 400,
   # Mondays 09:17 UTC. Odd minute on purpose: schedules on the hour queue
   # behind everyone else's.
   [string]$Schedule        = "17 9 * * 1",
@@ -90,6 +103,9 @@ $jobSa        = "mtg-ingest@$ProjectId.iam.gserviceaccount.com"
 $schedulerSa  = "mtg-ingest-scheduler@$ProjectId.iam.gserviceaccount.com"
 $schedulerJob = "$JobName-weekly"
 $tag          = (Get-Date -Format "yyyyMMdd-HHmmss")
+if ([string]::IsNullOrWhiteSpace($BackupBucket)) {
+  $BackupBucket = "$ProjectId-backups"
+}
 
 Step "Target"
 Note "project   $ProjectId"
@@ -178,6 +194,53 @@ if (Test-Gc iam service-accounts describe $schedulerSa --project $ProjectId) {
 # The job's identity gets exactly one permission, on exactly one secret.
 Invoke-Gc secrets add-iam-policy-binding $SecretName --member "serviceAccount:$jobSa" --role roles/secretmanager.secretAccessor --project $ProjectId
 
+Step "Backup bucket"
+if ($NoBackupBucket) {
+  Note "skipped (-NoBackupBucket); the job will not be given BACKUP_BUCKET"
+  $BackupBucket = ""
+} else {
+  Invoke-Gc services enable storage.googleapis.com --project $ProjectId
+
+  if (Test-Gc storage buckets describe "gs://$BackupBucket" --project $ProjectId) {
+    Note "gs://$BackupBucket already exists"
+  } else {
+    # Uniform access, so the only thing that can write here is the IAM
+    # binding below — no per-object ACLs to reason about. Nearline because
+    # these are written once and read approximately never, and public access
+    # prevention because a bucket of someone's collection should not be one
+    # misclick from the open internet.
+    Invoke-Gc storage buckets create "gs://$BackupBucket" --project $ProjectId --location $JobRegion --default-storage-class NEARLINE --uniform-bucket-level-access --public-access-prevention
+  }
+
+  # Deletes a backup after the retention window. Without this the bucket
+  # grows for ever; with it, the cost stays a rounding error.
+  $lifecycleFile = Join-Path ([System.IO.Path]::GetTempPath()) "mtg-backup-lifecycle.json"
+  $lifecycle = @"
+{
+  "lifecycle": {
+    "rule": [
+      {
+        "action": { "type": "Delete" },
+        "condition": { "age": $BackupRetentionDays }
+      }
+    ]
+  }
+}
+"@
+  [System.IO.File]::WriteAllText($lifecycleFile, $lifecycle, (New-Object System.Text.UTF8Encoding $false))
+  Invoke-Gc storage buckets update "gs://$BackupBucket" --project $ProjectId --lifecycle-file $lifecycleFile
+  Remove-Item $lifecycleFile -Force
+
+  <#
+    objectCreator, not objectAdmin: the job writes new backups and can do
+    nothing else — not read one, not overwrite one, not delete one. That is
+    why scripts/export-backup.ts puts a timestamp in every object name. An
+    unattended weekly job holding delete rights over the only off-database
+    copy of the collection is the shape of problem worth designing out.
+  #>
+  Invoke-Gc storage buckets add-iam-policy-binding "gs://$BackupBucket" --project $ProjectId --member "serviceAccount:$jobSa" --role roles/storage.objectCreator
+}
+
 if ($SkipBuild) {
   Step "Build skipped (-SkipBuild); deploying :latest"
   $deployImage = "${image}:latest"
@@ -190,7 +253,15 @@ if ($SkipBuild) {
 
 Step "Cloud Run Job"
 # `jobs deploy` creates or updates, so this is the same command either way.
-Invoke-Gc run jobs deploy $JobName --image $deployImage --region $JobRegion --project $ProjectId --service-account $jobSa --set-secrets "$SecretName=${SecretName}:latest" --cpu 1 --memory 1Gi --task-timeout 30m --max-retries 1 --parallelism 1 --tasks 1
+# --set-env-vars replaces the whole set, which is what we want: it is the
+# only env var the job takes, and clearing it is how -NoBackupBucket turns
+# the upload off.
+$envArgs = if ($BackupBucket) {
+  @("--set-env-vars", "BACKUP_BUCKET=$BackupBucket")
+} else {
+  @("--clear-env-vars")
+}
+Invoke-Gc run jobs deploy $JobName --image $deployImage --region $JobRegion --project $ProjectId --service-account $jobSa --set-secrets "$SecretName=${SecretName}:latest" @envArgs --cpu 1 --memory 1Gi --task-timeout 30m --max-retries 1 --parallelism 1 --tasks 1
 
 Step "Letting the scheduler start the job"
 Invoke-Gc run jobs add-iam-policy-binding $JobName --region $JobRegion --project $ProjectId --member "serviceAccount:$schedulerSa" --role roles/run.invoker

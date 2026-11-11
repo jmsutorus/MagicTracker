@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AppHeader } from "@/components/app-header";
 import { requireUser } from "@/lib/auth/dal";
 import { getDbStatus } from "@/lib/db/status";
+import { getLastBackup } from "@/lib/export/build";
 import { formatCents, formatCentsDelta } from "@/lib/prices/constants";
 import { formatPercent, percentChange } from "@/lib/prices/project";
 import { getValueTotals } from "@/lib/prices/queries";
@@ -74,8 +75,8 @@ const PHASES: readonly {
   {
     n: 8,
     name: "Polish",
-    detail: "PWA icon, exports, share links",
-    state: "current",
+    detail: "Home-screen icon, exports, deck share links",
+    state: "done",
   },
 ];
 
@@ -109,6 +110,7 @@ export default async function DashboardPage() {
   const user = await requireUser();
   const status = await getDbStatus();
   const value = await getValueTotals();
+  const backup = await getLastBackup();
 
   const valueDelta =
     value.previousCents === null
@@ -228,6 +230,47 @@ export default async function DashboardPage() {
               suspends after 5 minutes idle and takes a few hundred ms to wake.
             </p>
           ) : null}
+        </section>
+
+        <section className="rounded-lg border border-border bg-surface p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+              Your data
+            </h2>
+            <a
+              href="/api/export"
+              className="text-sm text-muted underline underline-offset-4 hover:text-foreground"
+            >
+              Download a copy
+            </a>
+          </div>
+          <p className="mt-3 text-sm text-muted">
+            One JSON file: locations, every collection row, every deck, and your
+            per-set completion rules — with card names beside the ids, so it is
+            worth something without this app. The card database is not in it;
+            that rebuilds from Scryfall in under a minute.
+          </p>
+          <p className="mt-2 text-xs text-muted">
+            {backup === null ? (
+              <>The weekly job takes one automatically. None recorded yet.</>
+            ) : (
+              <>
+                Last automatic backup {backup.startedAt.slice(0, 16)} —{" "}
+                <span
+                  className={backup.status === "ok" ? "text-ok" : "text-bad"}
+                >
+                  {backup.status}
+                </span>
+                {backup.destination ? (
+                  <>
+                    {" "}
+                    → <span className="font-mono">{backup.destination}</span>
+                  </>
+                ) : null}
+                .
+              </>
+            )}
+          </p>
         </section>
 
         <section className="rounded-lg border border-border bg-surface p-5">
