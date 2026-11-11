@@ -1,16 +1,17 @@
 # MagicTracker
 
 Personal Magic: The Gathering collection tracker — collection entry, set
-completion, sealed product adds, Commander decks, and pasted-list import.
-Built to run on free tiers indefinitely, with no subscription.
+completion, sealed product adds, Commander decks, pasted-list import, and
+weekly value tracking. Built to run on free tiers indefinitely, with no
+subscription.
 
 See [PLAN.md](./PLAN.md) for the architecture, data model, and phase plan,
 including why the stack is what it is.
 
-**Current state: Phases 0–6 complete.** Card search, collection entry with
+**Current state: Phases 0–7 complete.** Card search, collection entry with
 locations, per-set completion, precon adds, Commander decks with a legality
-engine and buy list, and paste import all work. Phase 7 is value tracking;
-Phase 8 is polish (PWA icon, exports, share links).
+engine and buy list, paste import, and the weekly price snapshot with its
+value page all work. Phase 8 is polish (PWA icon, exports, share links).
 
 ---
 
@@ -216,15 +217,17 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Drizzle Studio (browse the database) |
 | `npm run db:check` | Connectivity + migration + extension check |
-| `npm run ingest` | Both ingests, in order — what the scheduled job runs |
+| `npm run ingest` | All three ingests, in order — what the scheduled job runs |
 | `npm run ingest:cards` | Load Scryfall bulk data into the card tables. `-- --force` re-ingests an unchanged file |
 | `npm run ingest:products` | Load the MTGJSON sealed-product catalog. `-- --force` re-ingests an unchanged version |
+| `npm run ingest:prices` | Price the printings you own and record the week's total |
 | `scripts/search-smoke.ts` | Eyeball search ranking against the real database (`npx tsx`) |
 | `npm run collection:smoke` | End-to-end check of the collection layer against the real database |
 | `npm run completion:smoke` | End-to-end check of set completion against the real database |
 | `npm run products:smoke` | End-to-end check of sealed-product add against the real database |
 | `npm run decks:smoke` | End-to-end check of the deck layer against the real database |
 | `npm run import:smoke` | End-to-end check of paste import against the real database |
+| `npm run prices:smoke` | End-to-end check of the price layer against the real database and Scryfall |
 | `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
 
 ## The collection
@@ -509,6 +512,48 @@ Each destination is **one statement**, so a half-written import cannot happen.
 Both group by their unique key before inserting, which is not an optimisation:
 an `INSERT ... ON CONFLICT DO UPDATE` whose rows contain the same key twice
 fails outright, and a pasted list repeats cards all the time.
+
+## Value
+
+`/value` answers "what is this worth" with a date attached, because the prices
+come from a weekly job and a number with no date would imply it was live.
+
+**What the number is.** The market price of a **near-mint** copy, from
+Scryfall, per printing and finish, times what you own. Condition is not
+discounted: the tracker knows what condition you entered, but a multiplier for
+it would be invented data. Etched reads `usd_etched` only — it does not fall
+back to the foil price, because they are different cards on the market.
+
+**Two tables.**
+
+| Table | Holds | Why it exists |
+|---|---|---|
+| `price_snapshots` | One row per printing, finish, source and date | Per-card history; everything else can be recomputed from it |
+| `value_snapshots` | One row per date and source: the total, plus how many copies were priced and how many weren't | Cannot be rebuilt later — there is no history of *quantities*, so multiplying old prices by today's collection would answer a different question |
+
+The chart reads `value_snapshots` directly and says so on the card. The job is
+idempotent per day: a second run the same day updates that day's rows, so a
+retry after a half-finished run is safe.
+
+**Only what you own is priced.** 110k printings × a weekly snapshot would
+exhaust the 1 GB plan within months. `POST /cards/collection` takes 75 ids a
+request, so a few hundred owned printings cost a couple of calls.
+
+**Cents, never floats.** `parseFloat("0.29") * 100` is `28.999999999999996`,
+and that error survives being summed. Prices are parsed from the string
+straight to integer cents, summed by Postgres in `integer`, and formatted only
+for display.
+
+**A missing price is not zero.** A printing Scryfall has no price for is
+counted as unpriced and the page prints how many copies that covers, so the
+total is understood as "what we could price" rather than silently wrong.
+Spent-against-market likewise only covers copies that have *both* a recorded
+purchase price and a current one.
+
+**Movers** compares the latest snapshot against the newest one at or before 30
+days back — not "the row exactly 30 days ago", which a weekly job never has —
+and ranks by the change across the copies you own, since thirty lands up a
+nickel moves a collection more than one card up a dollar.
 
 ## How auth is structured
 

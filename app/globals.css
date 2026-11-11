@@ -12,6 +12,16 @@
   --ok: #2f6f46;
   --warn: #8a6d1f;
   --bad: #9b2c2c;
+
+  /*
+   * The chart series colour: the brand hue, snapped to a step a chart mark can
+   * use. --accent itself fails the checks a plotted mark has to pass (its
+   * chroma reads gray at chart size, and its dark counterpart sits above the
+   * lightness band for a dark surface), so the chart gets its own token and
+   * each mode gets its own step rather than one colour flipped. Both were run
+   * through the palette validator against the real surfaces.
+   */
+  --chart-line: #a86a2b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -27,6 +37,7 @@
     --ok: #6fbf8b;
     --warn: #d9bd6b;
     --bad: #e08a86;
+    --chart-line: #c5803b;
   }
 }
 

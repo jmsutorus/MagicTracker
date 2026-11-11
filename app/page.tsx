@@ -1,6 +1,11 @@
+import Link from "next/link";
+
 import { AppHeader } from "@/components/app-header";
 import { requireUser } from "@/lib/auth/dal";
 import { getDbStatus } from "@/lib/db/status";
+import { formatCents, formatCentsDelta } from "@/lib/prices/constants";
+import { formatPercent, percentChange } from "@/lib/prices/project";
+import { getValueTotals } from "@/lib/prices/queries";
 
 /**
  * Annotated rather than inferred from `as const`.
@@ -63,14 +68,14 @@ const PHASES: readonly {
   {
     n: 7,
     name: "Value tracking",
-    detail: "Weekly owned-card prices",
-    state: "current",
+    detail: "Weekly owned-card prices, value over time",
+    state: "done",
   },
   {
     n: 8,
     name: "Polish",
     detail: "PWA icon, exports, share links",
-    state: "next",
+    state: "current",
   },
 ];
 
@@ -103,6 +108,16 @@ function StatusRow({
 export default async function DashboardPage() {
   const user = await requireUser();
   const status = await getDbStatus();
+  const value = await getValueTotals();
+
+  const valueDelta =
+    value.previousCents === null
+      ? null
+      : value.totalCents - value.previousCents;
+  const valuePercent =
+    value.previousCents === null
+      ? null
+      : percentChange(value.previousCents, value.totalCents);
 
   return (
     <div className="flex-1 flex flex-col">
@@ -115,6 +130,59 @@ export default async function DashboardPage() {
             Signed in as{" "}
             <span className="font-mono text-foreground">{user.email}</span>.
           </p>
+        </section>
+
+        {/*
+          A stat tile, not a chart: one number with its change. The chart it
+          comes from lives on the value page, where there is room for the axis
+          and the history behind it.
+        */}
+        <section className="rounded-lg border border-border bg-surface p-5">
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+              Collection value
+            </h2>
+            <Link
+              href="/value"
+              className="text-xs text-muted underline underline-offset-4 hover:text-foreground"
+            >
+              Details
+            </Link>
+          </div>
+          {value.asOf === null ? (
+            <p className="mt-3 text-sm text-muted">
+              No price snapshot yet — the weekly job records one on Mondays.
+            </p>
+          ) : (
+            <>
+              <p className="mt-2 text-3xl font-semibold tracking-tight">
+                {formatCents(value.totalCents)}
+              </p>
+              <p className="mt-1 text-sm text-muted">
+                {valueDelta === null ? (
+                  <>First snapshot, {value.asOf}.</>
+                ) : (
+                  <>
+                    <span
+                      className={
+                        valueDelta === 0
+                          ? "text-muted"
+                          : valueDelta > 0
+                            ? "text-ok"
+                            : "text-bad"
+                      }
+                    >
+                      {formatCentsDelta(valueDelta)}
+                      {valuePercent === null
+                        ? ""
+                        : ` (${formatPercent(valuePercent)})`}
+                    </span>{" "}
+                    since {value.previousDate}, as of {value.asOf}.
+                  </>
+                )}
+              </p>
+            </>
+          )}
         </section>
 
         <section className="rounded-lg border border-border bg-surface p-5">

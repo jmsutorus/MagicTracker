@@ -12,6 +12,7 @@ export function AppHeader({
     | "sets"
     | "products"
     | "decks"
+    | "value"
     | "import";
 }) {
   const navClass = (key: string) =>
@@ -21,12 +22,14 @@ export function AppHeader({
 
   return (
     <header className="border-b border-border">
-      <div className="mx-auto flex w-full max-w-4xl items-center gap-5 px-4 py-4">
+      <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-x-5 gap-y-2 px-4 py-4">
         <Link href="/" className="text-lg font-semibold tracking-tight">
           MagicTracker
         </Link>
 
-        <nav className="flex items-center gap-4">
+        {/* Wraps rather than overflowing: eight links do not fit across a
+            phone, and a nav that scrolls sideways hides its own last item. */}
+        <nav className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Link href="/" className={navClass("dashboard")}>
             Dashboard
           </Link>
@@ -44,6 +47,9 @@ export function AppHeader({
           </Link>
           <Link href="/cards" className={navClass("cards")}>
             Cards
+          </Link>
+          <Link href="/value" className={navClass("value")}>
+            Value
           </Link>
           <Link href="/import" className={navClass("import")}>
             Import

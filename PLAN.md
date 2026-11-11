@@ -491,9 +491,42 @@ because two copies of that list would drift and the review would start showing a
 than the one it stored. That ordering also has to skip The List, whose entries are dated when
 they were re-inserted and so are the "newest" printing of every staple it holds.
 
-**Phase 7 — Value tracking**
+**Phase 7 — Value tracking** ✅
 Weekly owned-printings price job, value dashboard, value-over-time chart, biggest movers,
 acquisition price vs market.
+→ *Done when:* the collection has a total with a date on it, and a history you did not have to
+keep by hand.
+
+*Two tables, because one of them cannot be rebuilt.* `price_snapshots` is per printing and
+finish, and anything derived from it can be recomputed later. `value_snapshots` is the week's
+total, and it is stored rather than recomputed because there is no history of **quantities**:
+multiplying last month's prices by today's collection answers "what would what I own now have
+cost then", which is a different question that drifts further from the truth with every card
+added. The chart reads the stored totals and says so on the card.
+
+*Only what you own gets priced.* 110k printings times a weekly snapshot would eat the 1 GB plan
+within months, and `POST /cards/collection` (75 ids a request) prices a few hundred owned
+printings in a couple of calls — no 77 MB download for prices that are mostly for cards nobody
+here has.
+
+*Money is integer cents end to end.* `parseFloat(x) * 100` cannot represent `0.29` exactly —
+it is `28.999999999999996` — and the error survives being summed across a collection. The
+string is parsed to cents directly, Postgres sums in `integer`, and only the display formats.
+
+*Three honesty rules on the page.* A card with no price counts as **unpriced**, never as zero,
+and the page prints how many copies that is. Spent-against-market covers only the copies that
+have both numbers, because treating an unrecorded purchase price as free would read as profit.
+And the value is the market price of a near-mint copy with no condition multiplier: the tracker
+knows what condition you entered, but a discount curve for it would be invented data.
+
+*The chart follows the dataviz method,* which is mostly a list of things not to do: one series
+so no legend (the heading names it), a zero baseline so a quiet week cannot look like a crash,
+hairline gridlines, one direct label on the end point, a crosshair tooltip that flips to the
+empty half of the plot, and a table view under it so no value is reachable only by hovering.
+Its line colour is its own token: the brand accent fails the lightness and chroma checks a
+plotted mark has to pass, so `--chart-line` is the same hue snapped to a step that passes,
+chosen separately for light and dark and run through the palette validator against the real
+surfaces.
 
 **Phase 8 — Polish**
 PWA manifest for a phone app icon, scheduled database export to a file you keep, public
