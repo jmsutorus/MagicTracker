@@ -586,7 +586,11 @@ field by field, because that is the kind of leak that stays invisible until it m
 
 ## 9. Open questions
 
-None blocking. Phase 0 can start.
+None. All eight phases are built, deployed and verified; what is left is in §10 by
+choice, not by blockage. The one outstanding manual step is optional: connecting the
+GitHub repo to Firebase App Hosting for push-to-deploy, which needs a browser to
+authorize the Firebase GitHub App. Until then, deploying is
+`firebase deploy --only apphosting`.
 
 ## 10. Deferred
 
