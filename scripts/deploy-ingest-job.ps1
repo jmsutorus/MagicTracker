@@ -197,11 +197,14 @@ Invoke-Gc run jobs add-iam-policy-binding $JobName --region $JobRegion --project
 
 Step "Cloud Scheduler"
 $uri = "https://run.googleapis.com/v2/projects/$ProjectId/locations/$JobRegion/jobs/${JobName}:run"
+# Passed on both paths, not just create: a description set only on create
+# never converges, so an existing schedule keeps whatever it was first given.
+$schedulerDescription = "Weekly card + sealed-product ingest"
 if (Test-Gc scheduler jobs describe $schedulerJob --location $SchedulerRegion --project $ProjectId) {
   Note "updating the existing schedule"
-  Invoke-Gc scheduler jobs update http $schedulerJob --location $SchedulerRegion --project $ProjectId --schedule $Schedule --time-zone Etc/UTC --uri $uri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s
+  Invoke-Gc scheduler jobs update http $schedulerJob --location $SchedulerRegion --project $ProjectId --schedule $Schedule --time-zone Etc/UTC --uri $uri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s --description $schedulerDescription
 } else {
-  Invoke-Gc scheduler jobs create http $schedulerJob --location $SchedulerRegion --project $ProjectId --schedule $Schedule --time-zone Etc/UTC --uri $uri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s --description "Weekly card + sealed-product ingest"
+  Invoke-Gc scheduler jobs create http $schedulerJob --location $SchedulerRegion --project $ProjectId --schedule $Schedule --time-zone Etc/UTC --uri $uri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s --description $schedulerDescription
 }
 
 Step "Done"
