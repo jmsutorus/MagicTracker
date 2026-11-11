@@ -1,9 +1,10 @@
 /**
  * The scheduled ingest, as the Cloud Run Job runs it.  `npm run ingest`
  *
- * Two independent jobs, in order:
+ * Three independent jobs, in order:
  *   1. scripts/ingest-cards.ts    — Scryfall bulk cards (the big one).
  *   2. scripts/ingest-products.ts — the MTGJSON sealed-product catalog.
+ *   3. scripts/ingest-prices.ts   — prices for the printings you own.
  *
  * They run as separate child processes rather than as imported functions, for
  * two reasons. The card ingest streams a ~500 MB expanded file and peaks
@@ -12,18 +13,30 @@
  * --max-old-space-size. And a crash in one cannot take the other's database
  * connection or exit handler with it.
  *
- * Neither job depends on the other. The card ingest does not need the product
+ * No job depends on another. The card ingest does not need the product
  * catalog, and a product's cards resolve to printings through a LEFT JOIN at
  * query time rather than at ingest time — so a product ingested before its
- * cards exist starts working by itself once the cards arrive. That is why a
- * failure in the first job does not skip the second: both are attempted, both
- * are reported, and the exit code is non-zero if either failed.
+ * cards exist starts working by itself once the cards arrive. The price job
+ * reads `collection_items`, which no ingest writes, and prices whatever
+ * printings are there. That is why a failure in one does not skip the rest:
+ * all are attempted, all are reported, and the exit code is non-zero if any
+ * failed.
+ *
+ * The order is still deliberate. Prices run last so that a card bought and
+ * entered this week is priced in the same run that first ingested its
+ * printing, rather than waiting a week for the next one.
  *
  * Arguments are passed through, so `--args=--force` on the Cloud Run Job
- * forces both.
+ * reaches all three. The price job has nothing to force — there is no
+ * upstream version for it to compare against — so it accepts the flag and
+ * ignores it rather than failing on an argument it did not expect.
  */
 import { spawnSync } from "node:child_process";
-const SCRIPTS = ["scripts/ingest-cards.ts", "scripts/ingest-products.ts"];
+const SCRIPTS = [
+  "scripts/ingest-cards.ts",
+  "scripts/ingest-products.ts",
+  "scripts/ingest-prices.ts",
+];
 
 function main(): void {
   const args = process.argv.slice(2);

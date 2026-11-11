@@ -8,6 +8,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -785,6 +786,121 @@ export const deckCards = pgTable(
   ],
 );
 
+/**
+ * PRICES
+ *
+ * Two tables, because they answer two different questions and only one of
+ * them can be reconstructed.
+ *
+ * `price_snapshots` is what a card was worth on a date. Rows exist **only for
+ * (printing, finish) pairs somebody owns** — PLAN.md §6 is blunt about why:
+ * 110k printings times a weekly snapshot would eat the 1 GB plan within
+ * months, and nobody needs price history for a card they do not have. At this
+ * collection's size that is a few hundred rows a week, which is free forever.
+ *
+ * `value_snapshots` is what the whole collection was worth on a date, and it
+ * exists because that number cannot be recovered later. Multiplying today's
+ * quantities by last month's prices answers "what would what I own now have
+ * cost then" — a useful number, but not the same one, and it drifts further
+ * from the truth with every card added. There is no quantity history to
+ * reconstruct it from, so the total is recorded as the job sees it.
+ */
+export const priceSnapshots = pgTable(
+  "price_snapshots",
+  {
+    /*
+     * RESTRICT, like collection_items: a snapshot only exists for a printing
+     * somebody owns, so anything deleting that printing is already about to
+     * take a collection row with it and must fail loudly instead.
+     */
+    printingId: uuid("printing_id")
+      .notNull()
+      .references(() => printings.scryfallId, { onDelete: "restrict" }),
+
+    /** nonfoil | foil | etched — the finish actually owned. */
+    finish: text("finish").notNull(),
+
+    /**
+     * Where the number came from, in the price's own currency.
+     *
+     * Part of the key rather than a column so a second source can be added
+     * without the two overwriting each other, and so a chart can never
+     * silently add dollars to euros.
+     */
+    source: text("source").notNull(),
+
+    snapshotDate: date("snapshot_date").notNull(),
+
+    priceCents: integer("price_cents").notNull(),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.printingId,
+        table.finish,
+        table.source,
+        table.snapshotDate,
+      ],
+    }),
+    /*
+     * Descending by date: every read here is "the most recent price for this
+     * card", and the movers query asks it twice per card. The primary key's
+     * index cannot serve that — it leads with the printing but orders the date
+     * ascending, so the latest row is at the end of each group.
+     */
+    index("price_snapshots_latest_idx").on(
+      table.printingId,
+      table.finish,
+      table.source,
+      table.snapshotDate.desc(),
+    ),
+    index("price_snapshots_date_idx").on(table.snapshotDate),
+    // A free card is real (plenty are worth cents); a negative price is not.
+    check("price_snapshots_price_check", sql`${table.priceCents} >= 0`),
+    check(
+      "price_snapshots_finish_check",
+      sql`${table.finish} IN ('nonfoil', 'foil', 'etched')`,
+    ),
+  ],
+);
+
+export const valueSnapshots = pgTable(
+  "value_snapshots",
+  {
+    snapshotDate: date("snapshot_date").notNull(),
+    source: text("source").notNull(),
+
+    /** The collection's market value on that date, at that date's holdings. */
+    totalCents: integer("total_cents").notNull(),
+
+    /** Copies that had a price, and copies that did not. */
+    pricedCopies: integer("priced_copies").notNull().default(0),
+    unpricedCopies: integer("unpriced_copies").notNull().default(0),
+
+    /**
+     * Distinct (printing, finish) pairs with no price at all.
+     *
+     * Recorded rather than ignored because the total is only as honest as its
+     * coverage: Scryfall has no price for some printings, and a foil price can
+     * be missing for a printing that exists in foil. A value that quietly
+     * omits a tenth of the collection is worse than one that says so.
+     */
+    unpricedItems: integer("unpriced_items").notNull().default(0),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.snapshotDate, table.source] }),
+    check("value_snapshots_total_check", sql`${table.totalCents} >= 0`),
+  ],
+);
+
 export type Set = typeof sets.$inferSelect;
 export type OracleCard = typeof oracleCards.$inferSelect;
 export type Printing = typeof printings.$inferSelect;
@@ -799,3 +915,5 @@ export type PreconCard = typeof preconCards.$inferSelect;
 export type Deck = typeof decks.$inferSelect;
 export type NewDeck = typeof decks.$inferInsert;
 export type DeckCard = typeof deckCards.$inferSelect;
+export type PriceSnapshot = typeof priceSnapshots.$inferSelect;
+export type ValueSnapshot = typeof valueSnapshots.$inferSelect;

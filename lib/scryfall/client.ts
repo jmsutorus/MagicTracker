@@ -101,6 +101,89 @@ export async function getBulkDataEntry(
   return entry;
 }
 
+/**
+ * The most identifiers `POST /cards/collection` accepts in one request.
+ *
+ * Scryfall's documented cap. Sending more is rejected outright, so the caller
+ * must chunk — see getCardsByIds.
+ */
+export const COLLECTION_BATCH_SIZE = 75;
+
+/** Scryfall's per-finish market prices. Strings, and any of them may be null. */
+export type ScryfallPrices = {
+  usd?: string | null;
+  usd_foil?: string | null;
+  usd_etched?: string | null;
+  eur?: string | null;
+  eur_foil?: string | null;
+  tix?: string | null;
+};
+
+export type ScryfallCardPrices = {
+  id: string;
+  name: string;
+  set: string;
+  collector_number: string;
+  finishes?: string[];
+  prices?: ScryfallPrices;
+};
+
+/**
+ * Looks up specific printings by Scryfall id.
+ *
+ * This is the one place this app asks Scryfall about named cards rather than
+ * taking a bulk file, and it is the endpoint Scryfall provides for exactly
+ * that: `POST /cards/collection` takes up to 75 identifiers per request and
+ * is the sanctioned alternative to crawling cards one at a time. The price
+ * job needs the printings *somebody owns* — a few hundred rows, so a handful
+ * of requests — and downloading the 77 MB bulk file weekly to read a few
+ * hundred prices out of 110k cards would be the wasteful option, not the
+ * polite one.
+ *
+ * Ids Scryfall does not recognise come back in `not_found` rather than
+ * failing the request; they are returned to the caller so a stale printing is
+ * reported instead of silently costing a price.
+ */
+export async function getCardsByIds(
+  ids: string[],
+): Promise<{ cards: ScryfallCardPrices[]; notFound: string[] }> {
+  const cards: ScryfallCardPrices[] = [];
+  const notFound: string[] = [];
+
+  for (let i = 0; i < ids.length; i += COLLECTION_BATCH_SIZE) {
+    const batch = ids.slice(i, i + COLLECTION_BATCH_SIZE);
+    await courtesyDelay();
+
+    const res = await fetch(`${API_BASE}/cards/collection`, {
+      method: "POST",
+      headers: { ...scryfallHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ identifiers: batch.map((id) => ({ id })) }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (!res.ok) {
+      throw new Error(
+        `Scryfall POST /cards/collection failed: ${res.status} ${res.statusText}. ` +
+          (res.status === 403
+            ? "A 403 usually means the User-Agent or Accept header was dropped."
+            : ""),
+      );
+    }
+
+    const body = (await res.json()) as {
+      data?: ScryfallCardPrices[];
+      not_found?: { id?: string }[];
+    };
+
+    cards.push(...(body.data ?? []));
+    for (const miss of body.not_found ?? []) {
+      if (miss.id) notFound.push(miss.id);
+    }
+  }
+
+  return { cards, notFound };
+}
+
 export type ScryfallSet = {
   code: string;
   mtgo_code?: string;
