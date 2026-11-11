@@ -35,6 +35,8 @@ type Props = {
   productName: string;
   boards: BoardSummary[];
   locations: LocationOption[];
+  /** True for a Commander Deck, which also offers to build the decklist. */
+  canBuildDeck?: boolean;
 };
 
 /**
@@ -54,6 +56,7 @@ export function ProductAddForm({
   productName,
   boards,
   locations,
+  canBuildDeck = false,
 }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -78,7 +81,12 @@ export function ProductAddForm({
     undone: boolean;
   } | null>(null);
 
-  const [newLocation, setNewLocation] = useState("");
+  /*
+   * Prefilled with the product's name, because a precon almost always wants
+   * its own box and an empty field made that a thing you had to think of.
+   * Still a deliberate press: nothing is created until Create is clicked.
+   */
+  const [newLocation, setNewLocation] = useState(productName);
   const [creating, setCreating] = useState(false);
 
   const chosenCopies = boards
@@ -188,6 +196,13 @@ export function ProductAddForm({
       <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
         Add to collection
       </h2>
+      <p className="mt-2 text-sm text-muted">
+        Puts every card in the box into your collection, in one place, as owned
+        copies.{" "}
+        {canBuildDeck
+          ? "Building the decklist is the separate step below — most people opening a precon want both, in that order."
+          : ""}
+      </p>
 
       <div className="mt-3 flex flex-wrap gap-4">
         <label className="flex flex-col gap-1">
@@ -248,7 +263,7 @@ export function ProductAddForm({
             </button>
           </span>
           <span className="text-xs text-muted">
-            Created as a deck, and selected above.
+            Created as a deck box, and selected above.
           </span>
         </label>
       </div>
@@ -315,11 +330,23 @@ export function ProductAddForm({
                   .
                 </span>
               ) : null}
+              {canBuildDeck ? (
+                <span className="mt-2 block">
+                  Next:{" "}
+                  <a
+                    href="#build-the-deck"
+                    className="underline underline-offset-4 hover:text-accent"
+                  >
+                    build the decklist
+                  </a>{" "}
+                  from the same cards.
+                </span>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void undo()}
                 disabled={busy}
-                className="mt-2 cursor-pointer text-sm text-muted underline underline-offset-4 hover:text-foreground disabled:opacity-40"
+                className="mt-2 block cursor-pointer text-sm text-muted underline underline-offset-4 hover:text-foreground disabled:opacity-40"
               >
                 Undo
               </button>

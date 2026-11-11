@@ -162,6 +162,7 @@ export default async function ProductPage({
                 productName={product.name}
                 boards={boards}
                 locations={locations.map((l) => ({ id: l.id, name: l.name }))}
+                canBuildDeck={product.productType === "Commander Deck"}
               />
             </div>
 
@@ -172,7 +173,7 @@ export default async function ProductPage({
              * would make a deck that is illegal the moment it exists.
              */}
             {product.productType === "Commander Deck" ? (
-              <div className="mt-6">
+              <div className="mt-6 scroll-mt-4" id="build-the-deck">
                 <ProductDeckButton
                   fileName={product.fileName}
                   productName={product.name}

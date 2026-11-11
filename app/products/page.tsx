@@ -74,7 +74,9 @@ export default async function ProductsPage({
         </h1>
         <p className="mt-2 text-sm text-muted">
           Preconstructed decks with a known card list. Open one and its whole
-          contents go into your collection in a single step.
+          contents go into your collection in a single step. Search the name on
+          the box — &ldquo;Multiverse Reforged Commander Deck&rdquo; finds it
+          just as well as &ldquo;multiverse&rdquo;.
         </p>
 
         <form className="mt-6 flex flex-wrap items-end gap-3">
@@ -83,7 +85,7 @@ export default async function ProductsPage({
             <input
               name="q"
               defaultValue={q}
-              placeholder="Family Matters, or BLC…"
+              placeholder="Multiverse Reforged, or FRC…"
               className="w-64 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
             />
           </label>
@@ -130,14 +132,17 @@ export default async function ProductsPage({
 
         {result.rows.length === 0 ? (
           <p className="mt-3 rounded-lg border border-border bg-surface p-5 text-sm text-muted">
-            Nothing matches. Try “Every type”, or a shorter search.
+            Nothing matches. Every word has to appear somewhere, so a shorter
+            search finds more — and set and subset boxes aren&rsquo;t in here,
+            because their contents are random.
+            {productType ? " “Every type” widens it further." : ""}
           </p>
         ) : (
           <ul className="mt-3 space-y-2">
             {result.rows.map((p) => {
               // Cards owned out of the product's distinct cards. Null until
-              // someone opens the product and its card list is fetched, which
-              // is why this reads "not loaded yet" rather than "0%".
+              // someone opens the product and its card list is fetched —
+              // hence "open to load its cards" rather than a misleading 0%.
               const known = p.distinctCount !== null && p.distinctCount > 0;
               const percent = known
                 ? Math.min(
@@ -168,7 +173,7 @@ export default async function ProductsPage({
                         </span>
                       ) : (
                         <span className="text-xs text-muted">
-                          card list not loaded
+                          open to load its cards
                         </span>
                       )}
                     </div>

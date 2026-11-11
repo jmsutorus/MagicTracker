@@ -139,6 +139,35 @@ async function main() {
     assert.ok(searchByName.rows.some((r) => r.fileName === PRODUCT)),
   );
 
+  /*
+   * The name as printed on the box. The catalog splits that across two
+   * columns — name "Family Matters", product type "Commander Deck" — so a
+   * whole-string match finds nothing and the product looks absent.
+   */
+  const boxName = await queries.listProducts({
+    q: "Family Matters Commander Deck",
+  });
+  check("search matches the name as printed on the box", () =>
+    assert.ok(boxName.rows.some((r) => r.fileName === PRODUCT)),
+  );
+
+  const mixedCols = await queries.listProducts({ q: "blc commander" });
+  check("words may match different columns", () =>
+    assert.ok(mixedCols.rows.some((r) => r.fileName === PRODUCT)),
+  );
+
+  const everyWord = await queries.listProducts({
+    q: "Family Matters zzzznotaproduct",
+  });
+  check("every word still has to match something", () =>
+    assert.equal(everyWord.total, 0),
+  );
+
+  const spacey = await queries.listProducts({ q: "   Family    Matters   " });
+  check("runs of whitespace are not empty search terms", () =>
+    assert.ok(spacey.rows.some((r) => r.fileName === PRODUCT)),
+  );
+
   const noMatch = await queries.listProducts({ q: "zzzznotaproduct" });
   check("a search with no match returns nothing, not everything", () =>
     assert.equal(noMatch.total, 0),

@@ -88,6 +88,14 @@ export async function listProductTypes(): Promise<ProductTypeCount[]> {
  * collection rather than in one location: "do I already have this precon's
  * cards" does not depend on which binder they are in.
  */
+/**
+ * Words past this are ignored rather than ANDed in.
+ *
+ * Six is more than any product name needs, and it bounds how many ILIKE
+ * clauses a pasted sentence can put into one query.
+ */
+const TERM_LIMIT = 6;
+
 export async function listProducts(options: {
   q?: string;
   productType?: string;
@@ -101,14 +109,29 @@ export async function listProducts(options: {
 
   const filters: SQL[] = [];
 
+  /*
+   * Every word has to match something, but not all the same thing.
+   *
+   * People search for what is printed on the box — "Multiverse Reforged
+   * Commander Deck" — and the catalog stores that as a name ("Multiverse
+   * Reforged") beside a product type ("Commander Deck"). Matching the whole
+   * string against any one column finds nothing at all, which reads as "this
+   * product isn't in here" when it is sitting right there.
+   *
+   * So: split on whitespace and require each word to appear in the name, the
+   * set code, the set name or the product type. AND across words, OR across
+   * columns.
+   */
   const q = options.q?.trim();
-  if (q) {
+  const terms = q ? q.split(/\s+/).filter(Boolean).slice(0, TERM_LIMIT) : [];
+  for (const term of terms) {
     // Escaped because a literal % or _ in the search text would otherwise
     // widen the search instead of narrowing it.
-    const pattern = `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+    const pattern = `%${term.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
     filters.push(
       sql`(p.name ILIKE ${pattern} ESCAPE '\\'
            OR p.mtgjson_set_code ILIKE ${pattern} ESCAPE '\\'
+           OR p.product_type ILIKE ${pattern} ESCAPE '\\'
            OR s.name ILIKE ${pattern} ESCAPE '\\')`,
     );
   }
