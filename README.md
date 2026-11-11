@@ -140,7 +140,9 @@ AWS `us-east-2` — same metro — and the ingest is round-trip heavy.
 Create or update the whole thing:
 
 ```powershell
-powershell -File scripts/deploy-ingest-job.ps1
+# -ExecutionPolicy Bypass because the default policy on this machine refuses
+# to run a local .ps1 at all ("running scripts is disabled on this system").
+powershell -ExecutionPolicy Bypass -File scripts/deploy-ingest-job.ps1
 ```
 
 It is idempotent: change the ingest, run it again, and it rebuilds the image
