@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
+import { CardPurchaseLinks } from "@/components/card-purchase-links";
 import { requireUser } from "@/lib/auth/dal";
 import { getCardDetail } from "@/lib/cards/search";
 import { cardImageUrl } from "@/lib/scryfall/client";
@@ -173,8 +174,14 @@ export default async function CardDetailPage({
           </h2>
 
           <p className="mt-1 text-xs text-muted">
-            In Phase 2 this becomes the printing picker — choosing which exact
-            card goes into the collection.
+            Every printing in the card database. Add one from the search on{" "}
+            <Link
+              href="/collection/add"
+              className="underline underline-offset-4 hover:text-foreground"
+            >
+              Add cards
+            </Link>
+            , or follow a store link to buy it.
           </p>
 
           <ul className="mt-4 overflow-hidden rounded-lg border border-border bg-surface">
@@ -183,7 +190,7 @@ export default async function CardDetailPage({
               return (
                 <li
                   key={p.scryfallId}
-                  className="flex items-baseline gap-3 border-b border-border px-4 py-2.5 last:border-0"
+                  className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border px-4 py-2.5 last:border-0"
                 >
                   <span className="w-16 shrink-0 font-mono text-xs text-muted">
                     {p.setCode.toUpperCase()}
@@ -204,6 +211,18 @@ export default async function CardDetailPage({
                   </span>
                   <span className="hidden shrink-0 text-xs text-muted sm:inline">
                     {p.finishes.map((f) => FINISH_LABEL[f] ?? f).join(", ")}
+                  </span>
+                  {/*
+                    Its own line on a phone: sharing one row with the set name
+                    squeezed the name down to an ellipsis.
+                  */}
+                  <span className="w-full shrink-0 sm:w-auto">
+                    <CardPurchaseLinks
+                      cardName={card.name}
+                      tcgplayerId={p.tcgplayerId}
+                      setCode={p.setCode}
+                      collectorNumber={p.collectorNumber}
+                    />
                   </span>
                 </li>
               );

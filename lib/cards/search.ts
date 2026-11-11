@@ -25,6 +25,8 @@ export type PrintingSummary = {
   collectorNumber: string;
   rarity: string;
   finishes: string[];
+  /** TCGplayer's product id, when they list this printing. */
+  tcgplayerId: number | null;
   isBooster: boolean;
   isPromo: boolean;
   isVariation: boolean;
@@ -229,6 +231,7 @@ export async function getCardDetail(
     collector_number: string;
     rarity: string;
     finishes: string[];
+    tcgplayer_id: number | null;
     is_booster: boolean;
     is_promo: boolean;
     is_variation: boolean;
@@ -238,7 +241,7 @@ export async function getCardDetail(
   }>(sql`
     SELECT p.scryfall_id::text AS scryfall_id,
            p.set_code, s.name AS set_name, s.icon_svg_uri,
-           p.collector_number, p.rarity, p.finishes,
+           p.collector_number, p.rarity, p.finishes, p.tcgplayer_id,
            p.is_booster, p.is_promo, p.is_variation, p.full_art,
            p.released_at::text AS released_at, p.lang
       FROM printings p
@@ -270,6 +273,7 @@ export async function getCardDetail(
       collectorNumber: p.collector_number,
       rarity: p.rarity,
       finishes: p.finishes ?? [],
+      tcgplayerId: p.tcgplayer_id,
       isBooster: p.is_booster,
       isPromo: p.is_promo,
       isVariation: p.is_variation,

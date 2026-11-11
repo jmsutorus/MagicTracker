@@ -11,7 +11,8 @@ including why the stack is what it is.
 **Current state: all eight phases complete, plus cubes.** Card search,
 collection entry with locations, per-set completion, precon adds, Commander
 decks with a legality engine and buy list, cubes with a size target and a
-colour/curve/type breakdown, paste import, the weekly price snapshot with its
+colour/curve/type breakdown, paste import, one-click buy lists for TCGplayer
+and Mana Pool, the weekly price snapshot with its
 value page, a home-screen icon, exports with a weekly backup, and unlisted
 deck share links.
 
@@ -483,6 +484,42 @@ the wrong one: yellow-white and black marks fail the contrast and lightness
 checks against both themes' surfaces. Each distribution is one series in
 `--chart-line` — the token the value chart uses, the project's only
 validator-passing mark colour — with the label carrying the identity.
+
+## Buying what's missing
+
+Three places in the app know what you don't have — a deck's buy list, a set's
+missing list, and a single printing on a card page — and all three hand off to
+[TCGplayer](https://www.tcgplayer.com) or [Mana Pool](https://manapool.com).
+
+Neither store takes a pre-filled list in a URL, so a bulk handoff is: copy the
+list, open the store's bulk-entry page, paste. One click does both. The format
+is the one both stores document:
+
+```
+3 Lightning Bolt
+1 Sol Ring
+```
+
+**A deck buy list carries no set code, a set want list does.** A deck needs
+*the card* and any printing will do, so leaving the set off lets the store
+price the cheapest one. Completing a set means those exact printings, so there
+the lines read `1 Shapeshifter [TMH1] 1` — TCGplayer's Mass Entry documents
+exactly that shape, and Mana Pool's add-deck page lists it too.
+
+**The buttons are links, not buttons.** `window.open` called after an `await`
+has lost the user gesture and gets swallowed by popup blockers; a real link
+click never does. So the anchor opens the store and the click handler fires
+the clipboard copy alongside it. If the clipboard refuses — an insecure
+context, a denied permission — the panel says so and points at the download
+link next to it, rather than opening a store with an empty box.
+
+Single printings link straight through: TCGplayer by `tcgplayer_id` when the
+ingest has one and by name search when it doesn't, Mana Pool by set code and
+collector number, which the card database always has. Mana Pool redirects any
+slug to the canonical one, so a double-faced card still lands on the right
+page.
+
+No affiliate codes, no tracking parameters, nothing about you in the URL.
 
 ## Importing a pasted list
 

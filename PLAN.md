@@ -599,6 +599,24 @@ carrying the identity.
 every card in the list. Pasting into a new cube is one control on the import screen instead,
 which is how a 360-card list arrives anyway.
 
+**After the phases — Buying what's missing** ✅
+
+Both "what don't I have" answers already existed as downloads — a deck's buy list, a set's want
+list — and a text file is the wrong shape for the thing you actually do next, which is to open
+a store. Neither TCGplayer nor Mana Pool accepts a pre-filled list in a URL, so the handoff is
+clipboard plus bulk-entry page, on one click, in the format both stores document.
+
+*A deck buy list omits the set code and a set want list includes it.* A deck needs the card and
+any printing will do, so the store prices the cheapest; a set needs that exact printing. Same
+formatter, one flag, and the difference is a property of the question rather than of the code.
+
+*The buttons are anchors.* `window.open` after an `await` has lost the user gesture and is
+caught by popup blockers, so the link opens the tab and the handler copies alongside it. A
+clipboard that refuses says so and points at the download, rather than opening an empty box.
+
+*Nothing about the user goes out.* No affiliate code, no tracking parameter — the only thing
+in the URL is a product id or a set and collector number from our own card data.
+
 ---
 
 ## 8. Risks and constraints

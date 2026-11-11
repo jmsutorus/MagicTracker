@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
 import { CompletionScopeForm } from "@/components/completion-scope-form";
 import { ProgressBar } from "@/components/progress-bar";
+import { PurchaseButtons } from "@/components/purchase-buttons";
 import { requireUser } from "@/lib/auth/dal";
 import {
   getSetCompletion,
@@ -83,9 +84,7 @@ export default async function SetCompletionPage({
                 {completion.target.toLocaleString()}
               </span>
             </span>
-            <span
-              className={`text-2xl font-semibold ${done ? "text-ok" : ""}`}
-            >
+            <span className={`text-2xl font-semibold ${done ? "text-ok" : ""}`}>
               {completion.percent}%
             </span>
           </div>
@@ -100,9 +99,7 @@ export default async function SetCompletionPage({
             ) : null}
           </p>
           {done ? (
-            <p className="mt-2 text-sm text-ok">
-              Complete under these rules.
-            </p>
+            <p className="mt-2 text-sm text-ok">Complete under these rules.</p>
           ) : null}
         </section>
 
@@ -141,46 +138,64 @@ export default async function SetCompletionPage({
                 : "Nothing missing. Every card in scope is in your collection."}
             </p>
           ) : (
-            <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                    <th className="px-4 py-2 font-medium">#</th>
-                    <th className="px-4 py-2 font-medium">Card</th>
-                    <th className="hidden px-4 py-2 font-medium sm:table-cell">
-                      Cost
-                    </th>
-                    <th className="px-4 py-2 font-medium">Rarity</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {missing.map((card) => (
-                    <tr
-                      key={card.scryfallId}
-                      className="border-b border-border last:border-0"
-                    >
-                      <td className="px-4 py-2 font-mono text-xs text-muted">
-                        {card.collectorNumber}
-                      </td>
-                      <td className="px-4 py-2">
-                        <Link
-                          href={`/cards/${card.oracleId}`}
-                          className="hover:underline"
-                        >
-                          {card.name}
-                        </Link>
-                      </td>
-                      <td className="hidden px-4 py-2 font-mono text-xs text-muted sm:table-cell">
-                        {card.manaCost ?? ""}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-muted">
-                        {card.rarity}
-                      </td>
+            <>
+              {/*
+                Set codes and collector numbers are included here, unlike a
+                deck buy list: completing a set means these exact printings,
+                not whichever one is cheapest.
+              */}
+              <div className="mt-3 rounded-lg border border-border bg-surface p-4">
+                <PurchaseButtons
+                  label="every missing card"
+                  entries={missing.map((card) => ({
+                    quantity: 1,
+                    name: card.name,
+                    setCode: completion.code,
+                    collectorNumber: card.collectorNumber,
+                  }))}
+                />
+              </div>
+              <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
+                      <th className="px-4 py-2 font-medium">#</th>
+                      <th className="px-4 py-2 font-medium">Card</th>
+                      <th className="hidden px-4 py-2 font-medium sm:table-cell">
+                        Cost
+                      </th>
+                      <th className="px-4 py-2 font-medium">Rarity</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {missing.map((card) => (
+                      <tr
+                        key={card.scryfallId}
+                        className="border-b border-border last:border-0"
+                      >
+                        <td className="px-4 py-2 font-mono text-xs text-muted">
+                          {card.collectorNumber}
+                        </td>
+                        <td className="px-4 py-2">
+                          <Link
+                            href={`/cards/${card.oracleId}`}
+                            className="hover:underline"
+                          >
+                            {card.name}
+                          </Link>
+                        </td>
+                        <td className="hidden px-4 py-2 font-mono text-xs text-muted sm:table-cell">
+                          {card.manaCost ?? ""}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-muted">
+                          {card.rarity}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </section>
       </main>

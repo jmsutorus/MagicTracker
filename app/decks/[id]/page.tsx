@@ -10,6 +10,7 @@ import { DeckCardSearch } from "@/components/deck-card-search";
 import { DeckShare } from "@/components/deck-share";
 import { DeckToolbar } from "@/components/deck-toolbar";
 import { ProgressBar } from "@/components/progress-bar";
+import { PurchaseButtons } from "@/components/purchase-buttons";
 import { requireUser } from "@/lib/auth/dal";
 import { listLocations } from "@/lib/collection/queries";
 import {
@@ -142,6 +143,19 @@ export default async function DeckPage({
                 : ""}
               .
             </p>
+            {/*
+              No set code: a deck needs the card, and any printing will do, so
+              the stores are left to pick the cheapest one.
+            */}
+            <div className="mt-4 border-t border-border pt-4">
+              <PurchaseButtons
+                label="this list"
+                entries={deck.missing.map((m) => ({
+                  quantity: m.need,
+                  name: m.name,
+                }))}
+              />
+            </div>
           </section>
         ) : null}
 
