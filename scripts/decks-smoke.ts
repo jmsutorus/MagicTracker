@@ -128,10 +128,12 @@ async function main() {
   assert.ok(empty);
   check("an empty deck reports both missing things and nothing else", () => {
     assert.equal(report(empty).legal, false);
-    assert.deepEqual(report(empty).problems.map((p) => p.code).sort(), [
-      "deck_size",
-      "no_commander",
-    ]);
+    assert.deepEqual(
+      report(empty)
+        .problems.map((p) => p.code)
+        .sort(),
+      ["deck_size", "no_commander"],
+    );
     assert.equal(empty.cards.length, 0);
     assert.deepEqual(empty.missing, []);
   });
@@ -178,7 +180,9 @@ async function main() {
     assert.deepEqual(
       report(precon).problems,
       [],
-      `unexpected problems: ${report(precon).problems.map((p) => p.message).join(" | ")}`,
+      `unexpected problems: ${report(precon)
+        .problems.map((p) => p.message)
+        .join(" | ")}`,
     );
     assert.equal(report(precon).legal, true);
   });
@@ -335,16 +339,44 @@ async function main() {
   });
   assert.equal(addedToA.ok, true, JSON.stringify(addedToA));
 
+  /*
+   * Measured against what is there, not against 1.
+   *
+   * This suite used to assert "the collection holds exactly one" of the
+   * commander, which was true only while the database was empty of anything
+   * but its own fixtures. Owning the same precon yourself made it fail on a
+   * correct app. What the claim actually promises is a difference: one more
+   * copy spoken for, and the collection itself unchanged.
+   */
+  const unclaimed = await mutations.setDeckAllocation(fromProduct.id, false);
+  assert.equal(unclaimed.ok, true);
+
+  const deckABefore = await queries.getDeck(created.id);
+  assert.ok(deckABefore);
+  const rowBefore = deckABefore.cards.find(
+    (c) => c.oracleId === commanderCard.oracleId,
+  );
+  assert.ok(rowBefore);
+  const ownedCopies = rowBefore.owned;
+  const freeBefore = rowBefore.available;
+  assert.ok(freeBefore >= 1, "the suite's own copy should be free here");
+
+  const reclaimed = await mutations.setDeckAllocation(fromProduct.id, true);
+  assert.equal(reclaimed.ok, true);
+
   const deckA = await queries.getDeck(created.id);
   assert.ok(deckA);
   check("a card claimed by another built deck is not available here", () => {
     const row = deckA.cards.find((c) => c.oracleId === commanderCard.oracleId);
     assert.ok(row);
-    assert.equal(row.owned, 1, "the collection holds exactly one");
-    assert.equal(row.available, 0, "but it is spoken for");
-    assert.deepEqual(deckA.missing, [
-      { oracleId: row.oracleId, name: row.name, need: 1 },
-    ]);
+    assert.equal(row.owned, ownedCopies, "claiming moves nothing you own");
+    assert.equal(row.available, freeBefore - 1, "one copy is spoken for");
+    assert.deepEqual(
+      deckA.missing,
+      row.available >= row.quantity
+        ? []
+        : [{ oracleId: row.oracleId, name: row.name, need: 1 }],
+    );
   });
 
   const releaseAll = await mutations.setDeckAllocation(fromProduct.id, false);
@@ -357,7 +389,7 @@ async function main() {
       (c) => c.oracleId === commanderCard.oracleId,
     );
     assert.ok(row);
-    assert.equal(row.available, 1);
+    assert.equal(row.available, freeBefore);
     assert.deepEqual(deckAFree.missing, []);
   });
 

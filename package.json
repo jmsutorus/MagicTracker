@@ -21,6 +21,7 @@
     "collection:smoke": "tsx scripts/collection-smoke.ts",
     "completion:smoke": "tsx scripts/completion-smoke.ts",
     "products:smoke": "tsx scripts/products-smoke.ts",
+    "precon:smoke": "tsx scripts/precon-smoke.ts",
     "decks:smoke": "tsx scripts/decks-smoke.ts",
     "import:smoke": "tsx scripts/import-smoke.ts",
     "prices:smoke": "tsx scripts/prices-smoke.ts",

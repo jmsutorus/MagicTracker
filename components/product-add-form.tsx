@@ -4,11 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-import {
-  addProductAction,
-  createLocationForProductAction,
-  removeProductAction,
-} from "@/app/products/actions";
+import { addPreconAction, undoPreconAction } from "@/app/products/actions";
 import {
   CARD_CONDITIONS,
   LOCATION_EXPLAINER,
@@ -21,6 +17,7 @@ import {
   PRECON_BOARD_LABELS,
   type PreconBoard,
 } from "@/lib/products/constants";
+import type { PreconAdded, PreconUndoToken } from "@/lib/products/precon";
 
 export type BoardSummary = {
   board: PreconBoard;
@@ -40,6 +37,9 @@ type LocationOption = {
   cardCount: number;
 };
 
+/** The select value that means "make a box for this, named below". */
+const NEW_BOX = "__new__";
+
 /** "Shelf — Storage box · 412 cards", the whole answer on one line. */
 function describeLocation(location: LocationOption): string {
   const kind = LOCATION_KIND_LABELS[location.kind];
@@ -48,26 +48,31 @@ function describeLocation(location: LocationOption): string {
   return `${location.name} — ${kind} · ${cards}`;
 }
 
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
 type Props = {
   fileName: string;
   productName: string;
   boards: BoardSummary[];
   locations: LocationOption[];
-  /** True for a Commander Deck, which also offers to build the decklist. */
+  /** True for a Commander Deck, the one product that is also a decklist. */
   canBuildDeck?: boolean;
+  /** Copies of this box's cards already in the collection. */
+  ownedCopies?: number;
 };
 
 /**
- * "Add this product to my collection" — the two clicks Phase 4 exists for.
+ * Adding a precon, in one press.
  *
- * The shape of it: pick where it goes, tick what goes in, press the button.
- * The defaults are chosen so the common case needs neither of the first two
- * steps — the first location in the list and the deck as sold.
- *
- * It reports what happened in terms of cards rather than rows, and offers an
- * undo. The undo matters: this is the only screen in the app that writes a
- * hundred rows to the irreplaceable table from a single click, and a misread
- * location should not mean an evening of manual deletion.
+ * It used to take four, in three places: make a deck box, add the cards to
+ * it, build the decklist, mark the deck built. Each is a real thing the app
+ * records, but nobody who just bought a deck did four things — they bought a
+ * deck. So the default path is one button that does all four and one Undo
+ * that takes all four back, and every knob that used to be on the way there
+ * now lives behind "Change what happens", where it is still exact for the
+ * person pulling a box apart for singles.
  */
 export function ProductAddForm({
   fileName,
@@ -75,11 +80,24 @@ export function ProductAddForm({
   boards,
   locations,
   canBuildDeck = false,
+  ownedCopies = 0,
 }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
 
-  const [locationId, setLocationId] = useState(locations[0]?.id ?? "");
+  /*
+   * A Commander deck defaults to its own box, because keeping it together is
+   * what a precon is for. Anything else — a bundle, a Jumpstart pack — is a
+   * pile of cards, so it defaults to wherever cards already go.
+   */
+  const [destination, setDestination] = useState(
+    canBuildDeck || locations.length === 0
+      ? NEW_BOX
+      : (locations[0]?.id ?? NEW_BOX),
+  );
+  const [boxName, setBoxName] = useState(productName);
+  const [deckName, setDeckName] = useState(productName);
+  const [buildDeck, setBuildDeck] = useState(canBuildDeck);
   const [condition, setCondition] = useState<CardCondition>("NM");
   const [selected, setSelected] = useState<PreconBoard[]>(() =>
     boards
@@ -89,30 +107,19 @@ export function ProductAddForm({
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{
-    copies: number;
-    skipped: number;
-    skippedNames: string[];
-    locationName: string;
-    boards: PreconBoard[];
-    condition: CardCondition;
-    undone: boolean;
-  } | null>(null);
+  const [done, setDone] = useState<PreconAdded | null>(null);
+  const [undone, setUndone] = useState<string | null>(null);
 
-  /*
-   * Prefilled with the product's name, because a precon almost always wants
-   * its own box and an empty field made that a thing you had to think of.
-   * Still a deliberate press: nothing is created until Create is clicked.
-   */
-  const [newLocation, setNewLocation] = useState(productName);
-  const [creating, setCreating] = useState(false);
-
-  const chosenCopies = boards
+  const copies = boards
     .filter((b) => selected.includes(b.board))
     .reduce((n, b) => n + b.copies, 0);
 
-  const locationName =
-    locations.find((l) => l.id === locationId)?.name ?? "that location";
+  const boxLabel =
+    destination === NEW_BOX
+      ? boxName.trim().length > 0
+        ? `a new box called “${boxName.trim()}”`
+        : "a new box"
+      : (locations.find((l) => l.id === destination)?.name ?? "that box");
 
   function toggle(board: PreconBoard) {
     setSelected((current) =>
@@ -126,12 +133,16 @@ export function ProductAddForm({
     setBusy(true);
     setError(null);
     setDone(null);
+    setUndone(null);
 
-    const result = await addProductAction({
+    const result = await addPreconAction({
       fileName,
-      locationId,
+      locationId: destination === NEW_BOX ? null : destination,
+      locationName: boxName,
       condition,
       boards: selected,
+      buildDeck,
+      deckName,
     });
 
     setBusy(false);
@@ -141,33 +152,15 @@ export function ProductAddForm({
       return;
     }
 
-    setDone({
-      copies: result.copies,
-      skipped: result.skipped,
-      skippedNames: result.skippedNames,
-      locationName,
-      // Captured rather than read back from state at undo time, so that
-      // changing the form after an add cannot make the undo remove something
-      // the add never touched.
-      boards: selected,
-      condition,
-      undone: false,
-    });
+    setDone(result);
     startTransition(() => router.refresh());
   }
 
-  async function undo() {
-    if (!done) return;
-
+  async function undo(token: PreconUndoToken) {
     setBusy(true);
     setError(null);
 
-    const result = await removeProductAction({
-      fileName,
-      locationId,
-      condition: done.condition,
-      boards: done.boards,
-    });
+    const result = await undoPreconAction(token);
 
     setBusy(false);
 
@@ -176,175 +169,84 @@ export function ProductAddForm({
       return;
     }
 
-    setDone({ ...done, copies: result.copies, undone: true });
-    startTransition(() => router.refresh());
-  }
-
-  async function createNewLocation() {
-    const name = newLocation.trim();
-    if (name.length === 0) return;
-
-    setCreating(true);
-    setError(null);
-
-    const result = await createLocationForProductAction(name, "deck");
-
-    setCreating(false);
-
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-
-    setNewLocation("");
-    setLocationId(result.id);
-    startTransition(() => router.refresh());
-  }
-
-  if (locations.length === 0) {
-    return (
-      <div className="rounded-lg border border-border bg-surface-muted p-4 text-sm text-muted">
-        There is nowhere to put these cards yet. {LOCATION_EXPLAINER}{" "}
-        <Link
-          href="/collection/locations"
-          className="underline underline-offset-4 hover:text-foreground"
-        >
-          Make one
-        </Link>{" "}
-        and come back.
-      </div>
+    setUndone(
+      [
+        `Put it back: took out ${plural(result.copies, "card")}`,
+        result.deckDeleted ? "deleted the deck" : null,
+        result.locationDeleted ? "removed the box" : null,
+      ]
+        .filter(Boolean)
+        .join(", ") + ".",
     );
+    setDone(null);
+    startTransition(() => router.refresh());
   }
 
   return (
     <div className="rounded-lg border border-border bg-surface-muted p-4">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-        Add to collection
+        {canBuildDeck ? "I bought this deck" : "I bought this"}
       </h2>
-      <p className="mt-2 text-sm text-muted">
-        Puts every card in the box into your collection, in one place, as owned
-        copies.{" "}
-        {canBuildDeck
-          ? "Building the decklist is the separate step below — most people opening a precon want both, in that order."
-          : ""}
-      </p>
 
-      <div className="mt-4 rounded-lg border border-border bg-surface p-4">
-        <h3 className="text-sm font-medium">Which shelf are they going on?</h3>
-        <p className="mt-1 text-xs text-muted">
-          {LOCATION_EXPLAINER}{" "}
-          <Link
-            href="/collection/locations"
-            className="underline underline-offset-4 hover:text-foreground"
-          >
-            See all {locations.length}
-          </Link>
-          .
+      {/*
+       * Adding twice is allowed — two boxes is two boxes — but it is also
+       * the obvious way to double your collection by accident, since the
+       * page looks the same before and after. So it says so first.
+       */}
+      {ownedCopies > 0 && done === null ? (
+        <p className="mt-2 text-sm text-muted">
+          You already own {plural(ownedCopies, "card")} from this box. Pressing
+          this adds another copy of it.
         </p>
+      ) : null}
 
-        <div className="mt-3 flex flex-wrap items-end gap-4">
-          <label className="flex flex-col gap-1">
-            <span className="text-sm">Put them in</span>
-            <select
-              value={locationId}
-              disabled={busy}
-              onChange={(e) => setLocationId(e.target.value)}
-              className="w-72 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
-            >
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {describeLocation(l)}
-                </option>
-              ))}
-            </select>
-          </label>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <button
+          type="button"
+          onClick={() => void add()}
+          disabled={
+            busy ||
+            copies === 0 ||
+            (destination === NEW_BOX && boxName.trim().length === 0)
+          }
+          className="cursor-pointer rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-contrast disabled:opacity-40"
+        >
+          {busy
+            ? "Working…"
+            : buildDeck
+              ? "Add the deck"
+              : `Add ${plural(copies, "card")}`}
+        </button>
 
-          <label className="flex flex-col gap-1">
-            <span className="text-sm">Condition</span>
-            <select
-              value={condition}
-              disabled={busy}
-              onChange={(e) => setCondition(e.target.value as CardCondition)}
-              className="w-28 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
-            >
-              {CARD_CONDITIONS.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className="mt-4 border-t border-border pt-3">
-          <p className="text-sm">
-            Keeping the deck together? Give it its own box.
-          </p>
-          <span className="mt-2 flex flex-wrap gap-2">
-            <input
-              value={newLocation}
-              disabled={creating || busy}
-              placeholder={`${productName.slice(0, 24)}…`}
-              aria-label="Name for a new deck box"
-              onChange={(e) => setNewLocation(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void createNewLocation();
-                }
-              }}
-              className="w-56 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
-            />
-            <button
-              type="button"
-              onClick={() => void createNewLocation()}
-              disabled={newLocation.trim().length === 0 || creating || busy}
-              className="cursor-pointer rounded-lg border border-border bg-surface px-3 py-2 text-sm hover:text-foreground disabled:opacity-40"
-            >
-              {creating ? "…" : "Create this deck box"}
-            </button>
+        {copies === 0 ? (
+          <span className="text-xs text-muted">
+            Nothing is ticked to add — see “Change what happens”.
           </span>
-          <p className="mt-2 text-xs text-muted">
-            Creates a new location of kind{" "}
-            <span className="text-foreground">{LOCATION_KIND_LABELS.deck}</span>{" "}
-            with that name and selects it above. Nothing is created until you
-            press the button.
-          </p>
-        </div>
+        ) : null}
       </div>
 
-      <fieldset className="mt-4">
-        <legend className="text-sm">What goes in</legend>
-        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
-          {boards.map((b) => (
-            <label
-              key={b.board}
-              className={`flex gap-2 ${busy ? "opacity-50" : "cursor-pointer"}`}
-            >
-              <input
-                type="checkbox"
-                checked={selected.includes(b.board)}
-                disabled={busy}
-                onChange={() => toggle(b.board)}
-                className="mt-1 size-4 shrink-0 accent-[var(--accent)]"
-              />
-              <span className="min-w-0">
-                <span className="block text-sm">
-                  {PRECON_BOARD_LABELS[b.board]}
-                </span>
-                <span className="block text-xs text-muted">
-                  {b.copies} card{b.copies === 1 ? "" : "s"}
-                  {b.unresolved > 0 ? `, ${b.unresolved} unmatched` : ""}
-                </span>
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      {/*
+       * One sentence, built from the settings that are actually in force, so
+       * that opening the options and changing something cannot leave the
+       * promise and the behaviour disagreeing.
+       */}
+      <p className="mt-3 text-sm text-muted">
+        Puts {plural(copies, "card")} into {boxLabel}
+        {buildDeck
+          ? ", builds the decklist, and marks the deck built — so other decks stop counting those cards as free."
+          : "."}{" "}
+        One press, and one Undo if it was the wrong box.
+      </p>
 
       {error ? (
         <p role="alert" className="mt-3 text-sm text-bad">
           {error}
+        </p>
+      ) : null}
+
+      {undone ? (
+        <p role="status" className="mt-3 text-sm text-muted">
+          {undone}
         </p>
       ) : null}
 
@@ -353,68 +255,200 @@ export function ProductAddForm({
           role="status"
           className="mt-3 rounded-lg border border-border bg-surface p-3 text-sm"
         >
-          {done.undone ? (
-            <span>
-              Took {done.copies} card{done.copies === 1 ? "" : "s"} back out of{" "}
-              {done.locationName}.
+          <span className="text-ok">
+            Added {plural(done.copies, "card")} to {done.location.name}
+            {done.location.created ? " (new box)" : ""}
+            {done.deck
+              ? `, built “${done.deck.name}” and claimed ${plural(done.deck.allocated, "card")} for it.`
+              : "."}
+          </span>
+
+          {done.deck && done.deck.unavailable > 0 ? (
+            <span className="mt-1 block text-muted">
+              {plural(done.deck.unavailable, "card")} could not be claimed —
+              another built deck already has{" "}
+              {done.deck.unavailable === 1 ? "it" : "them"}.
             </span>
-          ) : (
-            <>
-              <span className="text-ok">
-                Added {done.copies} card{done.copies === 1 ? "" : "s"} to{" "}
-                {done.locationName}.
-              </span>
-              {done.skipped > 0 ? (
-                <span className="mt-1 block text-muted">
-                  {done.skipped} card{done.skipped === 1 ? "" : "s"} could not
-                  be matched to a printing and{" "}
-                  {done.skipped === 1 ? "was" : "were"} left out
-                  {done.skippedNames.length > 0
-                    ? `: ${done.skippedNames.join(", ")}`
-                    : ""}
-                  .
-                </span>
-              ) : null}
-              {canBuildDeck ? (
-                <span className="mt-2 block">
-                  Next:{" "}
-                  <a
-                    href="#build-the-deck"
-                    className="underline underline-offset-4 hover:text-accent"
-                  >
-                    build the decklist
-                  </a>{" "}
-                  from the same cards.
-                </span>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => void undo()}
-                disabled={busy}
-                className="mt-2 block cursor-pointer text-sm text-muted underline underline-offset-4 hover:text-foreground disabled:opacity-40"
+          ) : null}
+
+          {done.skipped > 0 ? (
+            <span className="mt-1 block text-muted">
+              {plural(done.skipped, "card")} could not be matched to a printing
+              and {done.skipped === 1 ? "was" : "were"} left out
+              {done.skippedNames.length > 0
+                ? `: ${done.skippedNames.join(", ")}`
+                : ""}
+              .
+            </span>
+          ) : null}
+
+          <span className="mt-3 flex flex-wrap items-center gap-4">
+            {done.deck ? (
+              <Link
+                href={`/decks/${done.deck.id}`}
+                className="rounded-lg border border-border bg-surface-muted px-3 py-1.5 hover:text-foreground"
               >
-                Undo
-              </button>
-            </>
-          )}
+                Open the deck →
+              </Link>
+            ) : (
+              <Link
+                href="/collection"
+                className="rounded-lg border border-border bg-surface-muted px-3 py-1.5 hover:text-foreground"
+              >
+                Open the collection →
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={() => void undo(done.undo)}
+              disabled={busy}
+              className="cursor-pointer text-muted underline underline-offset-4 hover:text-foreground disabled:opacity-40"
+            >
+              Undo all of it
+            </button>
+          </span>
         </div>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => void add()}
-          disabled={busy || selected.length === 0 || chosenCopies === 0}
-          className="cursor-pointer rounded-lg bg-accent px-4 py-2 text-sm text-accent-contrast disabled:opacity-40"
-        >
-          {busy
-            ? "Working…"
-            : `Add ${chosenCopies} card${chosenCopies === 1 ? "" : "s"}`}
-        </button>
-        {selected.length === 0 ? (
-          <span className="text-xs text-muted">Tick something to add.</span>
-        ) : null}
-      </div>
+      <details className="mt-4 border-t border-border pt-3">
+        <summary className="cursor-pointer text-sm text-muted hover:text-foreground">
+          Change what happens
+        </summary>
+
+        <div className="mt-4 space-y-5">
+          {canBuildDeck ? (
+            <label className="flex gap-2">
+              <input
+                type="checkbox"
+                checked={buildDeck}
+                disabled={busy}
+                onChange={(e) => setBuildDeck(e.target.checked)}
+                className="mt-1 size-4 shrink-0 accent-[var(--accent)]"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm">
+                  Build the decklist as well
+                </span>
+                <span className="block text-xs text-muted">
+                  Leave this off if you are pulling the box apart for singles —
+                  the cards still go into your collection.
+                </span>
+              </span>
+            </label>
+          ) : null}
+
+          {buildDeck ? (
+            <label className="flex flex-col gap-1">
+              <span className="text-sm">Deck name</span>
+              <input
+                value={deckName}
+                disabled={busy}
+                onChange={(e) => setDeckName(e.target.value)}
+                className="w-72 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+              />
+            </label>
+          ) : null}
+
+          <div>
+            <p className="text-sm">Where the cards go</p>
+            <p className="mt-1 text-xs text-muted">
+              {LOCATION_EXPLAINER}{" "}
+              <Link
+                href="/collection/locations"
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                See all {locations.length}
+              </Link>
+              .
+            </p>
+
+            <div className="mt-3 flex flex-wrap items-end gap-4">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-muted">Box</span>
+                <select
+                  value={destination}
+                  disabled={busy}
+                  onChange={(e) => setDestination(e.target.value)}
+                  className="w-72 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+                >
+                  <option value={NEW_BOX}>A new box of its own</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {describeLocation(l)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {destination === NEW_BOX ? (
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted">New box name</span>
+                  <input
+                    value={boxName}
+                    disabled={busy}
+                    onChange={(e) => setBoxName(e.target.value)}
+                    className="w-56 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+                  />
+                </label>
+              ) : null}
+
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-muted">Condition</span>
+                <select
+                  value={condition}
+                  disabled={busy}
+                  onChange={(e) =>
+                    setCondition(e.target.value as CardCondition)
+                  }
+                  className="w-28 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+                >
+                  {CARD_CONDITIONS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {destination === NEW_BOX ? (
+              <p className="mt-2 text-xs text-muted">
+                Nothing is created until you press the button above. A box of
+                this name that already exists is used as it is, not duplicated.
+              </p>
+            ) : null}
+          </div>
+
+          <fieldset>
+            <legend className="text-sm">What goes in</legend>
+            <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2">
+              {boards.map((b) => (
+                <label
+                  key={b.board}
+                  className={`flex gap-2 ${busy ? "opacity-50" : "cursor-pointer"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(b.board)}
+                    disabled={busy}
+                    onChange={() => toggle(b.board)}
+                    className="mt-1 size-4 shrink-0 accent-[var(--accent)]"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm">
+                      {PRECON_BOARD_LABELS[b.board]}
+                    </span>
+                    <span className="block text-xs text-muted">
+                      {plural(b.copies, "card")}
+                      {b.unresolved > 0 ? `, ${b.unresolved} unmatched` : ""}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+      </details>
     </div>
   );
 }

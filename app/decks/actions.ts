@@ -7,7 +7,6 @@ import {
   addDeckCard,
   adjustDeckCard,
   createDeck,
-  createDeckFromProduct,
   deleteDeck,
   removeDeckCard,
   renameDeck,
@@ -137,24 +136,6 @@ export async function setDeckAllocationAction(
   await requireUser();
   const result = await setDeckAllocation(deckId, allocated);
   if (result.ok) revalidateDeck(deckId);
-  return result;
-}
-
-/**
- * The other half of "buying a precon is two clicks": the deck, not just the
- * cards. PLAN.md scheduled this in Phase 5 because it needs these tables.
- */
-export async function createDeckFromProductAction(
-  fileName: string,
-  name: string,
-  locationId: string | null,
-) {
-  await requireUser();
-  const result = await createDeckFromProduct(fileName, name, locationId);
-  if (result.ok) {
-    revalidateDeck(result.id);
-    revalidatePath(`/products/${fileName}`);
-  }
   return result;
 }
 
