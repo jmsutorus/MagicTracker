@@ -11,6 +11,7 @@ import { getLastBackup } from "@/lib/export/build";
 import { formatCents, formatCentsDelta } from "@/lib/prices/constants";
 import { formatPercent, percentChange } from "@/lib/prices/project";
 import { getValueTotals } from "@/lib/prices/queries";
+import { listWishlist } from "@/lib/wishlist/queries";
 
 /**
  * The front door.
@@ -104,14 +105,16 @@ export default async function DashboardPage() {
    * them in sequence made the first load of the front door the slowest page
    * in the app.
    */
-  const [totals, value, decks, sets, backup, status] = await Promise.all([
-    getCollectionTotals(),
-    getValueTotals(),
-    listDecks(),
-    listSetProgress(),
-    getLastBackup(),
-    getDbStatus(),
-  ]);
+  const [totals, value, decks, sets, wishlist, backup, status] =
+    await Promise.all([
+      getCollectionTotals(),
+      getValueTotals(),
+      listDecks(),
+      listSetProgress(),
+      listWishlist(),
+      getLastBackup(),
+      getDbStatus(),
+    ]);
 
   const valueDelta =
     value.previousCents === null
@@ -137,6 +140,16 @@ export default async function DashboardPage() {
     .slice(0, PREVIEW_ROWS);
 
   const recentDecks = decks.slice(0, PREVIEW_ROWS);
+
+  /*
+   * The cheapest set still outstanding, skipping any whose missing cards have
+   * no price at all: a $0 total there means "unknown", not "free", and
+   * leading the dashboard with it would be a lie about the easiest set to
+   * finish.
+   */
+  const cheapestSet = sets
+    .filter((s) => s.missing > 0 && s.missingPriced > 0)
+    .sort((a, b) => a.missingCents - b.missingCents)[0];
   const builtDecks = decks.filter((d) => d.allocatedCopies > 0).length;
   /*
    * Copies the decks want that the collection cannot supply. Summed across
@@ -241,7 +254,7 @@ export default async function DashboardPage() {
           </div>
 
           {empty ? null : (
-            <dl className="mt-6 grid grid-cols-3 gap-4 border-t border-border pt-5">
+            <dl className="mt-6 grid grid-cols-2 gap-4 border-t border-border pt-5 sm:grid-cols-3 lg:grid-cols-5">
               <Stat
                 label="Decks"
                 value={NUMBER.format(decks.length)}
@@ -261,6 +274,28 @@ export default async function DashboardPage() {
                 value={NUMBER.format(toBuy)}
                 hint={toBuy === 0 ? "nothing" : "cards, across all decks"}
               />
+              <Stat
+                label="Wishlist"
+                value={NUMBER.format(wishlist.wantedCopies)}
+                hint={
+                  wishlist.rows.length === 0
+                    ? "nothing on it"
+                    : `${formatCents(wishlist.totalCents)} to buy`
+                }
+              />
+              <Stat
+                label="Cheapest set"
+                value={
+                  cheapestSet
+                    ? formatCents(cheapestSet.missingCents)
+                    : NUMBER.format(0)
+                }
+                hint={
+                  cheapestSet
+                    ? `${cheapestSet.code.toUpperCase()} — ${NUMBER.format(cheapestSet.missing)} cards to go`
+                    : "nothing in progress"
+                }
+              />
             </dl>
           )}
         </section>
@@ -268,7 +303,7 @@ export default async function DashboardPage() {
         {/* ---- what you came here to do ----------------------------------- */}
         <section>
           <SectionHeading title="Add something" />
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Action
               href="/collection/add"
               title="Add cards"
@@ -288,6 +323,11 @@ export default async function DashboardPage() {
               href="/products"
               title="Open a precon"
               detail="Every card from the box in one step"
+            />
+            <Action
+              href="/wishlist"
+              title="Want a card"
+              detail="A list that isn't a set or a deck"
             />
           </div>
         </section>

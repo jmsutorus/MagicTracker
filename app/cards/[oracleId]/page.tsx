@@ -4,8 +4,11 @@ import { notFound } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
 import { CardPurchaseLinks } from "@/components/card-purchase-links";
+import { PriceHistory } from "@/components/price-history";
+import { WishButton } from "@/components/wish-button";
 import { requireUser } from "@/lib/auth/dal";
 import { getCardDetail } from "@/lib/cards/search";
+import { getOwnedPriceHistory } from "@/lib/prices/queries";
 import { cardImageUrl } from "@/lib/scryfall/client";
 
 const RARITY_LABEL: Record<string, string> = {
@@ -60,6 +63,10 @@ export default async function CardDetailPage({
 
   const card = await getCardDetail(oracleId);
   if (!card) notFound();
+
+  // Only ever has anything for a card you own, so it costs nothing on the
+  // overwhelming majority of card pages.
+  const history = await getOwnedPriceHistory(oracleId);
 
   const primary = card.printings[0];
   const commanderLegality = card.legalities?.commander ?? "unknown";
@@ -164,8 +171,14 @@ export default async function CardDetailPage({
                 </div>
               ) : null}
             </dl>
+
+            <div className="mt-5">
+              <WishButton oracleId={card.oracleId} />
+            </div>
           </div>
         </div>
+
+        <PriceHistory series={history} />
 
         <section className="mt-10">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
@@ -216,12 +229,21 @@ export default async function CardDetailPage({
                     Its own line on a phone: sharing one row with the set name
                     squeezed the name down to an ellipsis.
                   */}
-                  <span className="w-full shrink-0 sm:w-auto">
+                  <span className="flex w-full shrink-0 items-baseline gap-3 sm:w-auto">
                     <CardPurchaseLinks
                       cardName={card.name}
                       tcgplayerId={p.tcgplayerId}
                       setCode={p.setCode}
                       collectorNumber={p.collectorNumber}
+                    />
+                    <span className="text-border">·</span>
+                    {/* This exact printing, as opposed to the any-printing
+                        button above, which is the usual kind of wish. */}
+                    <WishButton
+                      oracleId={card.oracleId}
+                      printingId={p.scryfallId}
+                      label="Want"
+                      compact
                     />
                   </span>
                 </li>

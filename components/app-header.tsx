@@ -12,6 +12,7 @@ export function AppHeader({
     | "sets"
     | "products"
     | "decks"
+    | "wishlist"
     | "value"
     | "import";
 }) {
@@ -27,7 +28,7 @@ export function AppHeader({
           MagicTracker
         </Link>
 
-        {/* Wraps rather than overflowing: eight links do not fit across a
+        {/* Wraps rather than overflowing: nine links do not fit across a
             phone, and a nav that scrolls sideways hides its own last item. */}
         <nav className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Link href="/" className={navClass("dashboard")}>
@@ -47,6 +48,9 @@ export function AppHeader({
           </Link>
           <Link href="/cards" className={navClass("cards")}>
             Cards
+          </Link>
+          <Link href="/wishlist" className={navClass("wishlist")}>
+            Wishlist
           </Link>
           <Link href="/value" className={navClass("value")}>
             Value

@@ -20,11 +20,14 @@ import { getDb } from "@/lib/db";
  */
 
 /**
- * 2 since cubes: `decks[].targetSize` was added, and a cube that came back
- * from a version-1 file would be restored without the size it was built to.
- * A reader that only knows version 1 can still read everything it knew.
+ * 3 since the wishlist: a whole top-level `wishlist` array was added, and a
+ * version-2 file simply has no record of it.
+ *
+ * (2 was cubes: `decks[].targetSize`, without which a cube came back missing
+ * the size it was built to.) A reader that only knows an earlier version can
+ * still read everything it knew — nothing is renamed or removed.
  */
-export const EXPORT_FORMAT_VERSION = 2;
+export const EXPORT_FORMAT_VERSION = 3;
 
 export type ExportLocation = {
   id: string;
@@ -80,6 +83,19 @@ export type ExportCompletionTarget = {
   finish: string;
 };
 
+export type ExportWish = {
+  oracleId: string;
+  name: string;
+  /** Null when the wish is for any printing. */
+  printingId: string | null;
+  setCode: string | null;
+  collectorNumber: string | null;
+  /** Null when the wish is for any finish. */
+  finish: string | null;
+  quantity: number;
+  note: string | null;
+};
+
 export type CollectionExport = {
   app: "MagicTracker";
   formatVersion: number;
@@ -91,11 +107,13 @@ export type CollectionExport = {
     decks: number;
     deckCards: number;
     completionTargets: number;
+    wishes: number;
   };
   locations: ExportLocation[];
   collection: ExportCollectionItem[];
   decks: ExportDeck[];
   completionTargets: ExportCompletionTarget[];
+  wishlist: ExportWish[];
 };
 
 export async function buildExport(): Promise<CollectionExport> {
@@ -204,6 +222,30 @@ export async function buildExport(): Promise<CollectionExport> {
      ORDER BY set_code
   `);
 
+  const { rows: wishes } = await db.execute<{
+    oracle_id: string;
+    name: string;
+    printing_id: string | null;
+    set_code: string | null;
+    collector_number: string | null;
+    finish: string | null;
+    quantity: number;
+    note: string | null;
+  }>(sql`
+    SELECT w.oracle_id::text  AS oracle_id,
+           o.name,
+           w.printing_id::text AS printing_id,
+           p.set_code,
+           p.collector_number,
+           w.finish,
+           w.quantity,
+           w.note
+      FROM wishlist_items w
+      JOIN oracle_cards o ON o.oracle_id = w.oracle_id
+      LEFT JOIN printings p ON p.scryfall_id = w.printing_id
+     ORDER BY o.name, p.set_code NULLS FIRST, p.collector_number
+  `);
+
   // Grouped in JS rather than with a json_agg: the deck count here is in the
   // dozens, and one readable query per table beats one clever one.
   const cardsByDeck = new Map<string, ExportDeckCard[]>();
@@ -259,6 +301,7 @@ export async function buildExport(): Promise<CollectionExport> {
       decks: decks.length,
       deckCards: deckCardRows.length,
       completionTargets: targets.length,
+      wishes: wishes.length,
     },
     locations: locations.map((l) => ({
       id: l.id,
@@ -274,6 +317,21 @@ export async function buildExport(): Promise<CollectionExport> {
       includePromos: t.include_promos,
       includeExtras: t.include_extras,
       finish: t.finish,
+    })),
+    /*
+     * The card's name travels with the id for the same reason it does on a
+     * collection row: an export should still be readable by a human, and by
+     * anything that does not have this card database, years from now.
+     */
+    wishlist: wishes.map((w) => ({
+      oracleId: w.oracle_id,
+      name: w.name,
+      printingId: w.printing_id,
+      setCode: w.set_code,
+      collectorNumber: w.collector_number,
+      finish: w.finish,
+      quantity: w.quantity,
+      note: w.note,
     })),
   };
 }

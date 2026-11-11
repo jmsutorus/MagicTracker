@@ -254,6 +254,7 @@ printings         (scryfall_id PK, oracle_id FK, set_code FK, collector_number, 
                    rarity, lang, finishes text[], is_booster, is_promo, is_variation,
                    frame_effects text[], border_color, released_at,
                    mtgjson_uuid, tcgplayer_id,
+                   usd_cents, usd_foil_cents, usd_etched_cents,
                    UNIQUE (set_code, collector_number, lang))
 
 precon_products   (file_name PK, name, mtgjson_set_code, product_type, released_at,
@@ -295,6 +296,9 @@ decks             (id PK, name, format, target_size NULL, notes,
 deck_cards        (id PK, deck_id FK, oracle_id FK, printing_id FK NULL,
                    board, quantity, is_allocated,
                    UNIQUE (deck_id, board, oracle_id))
+wishlist_items    (id PK, oracle_id FK, printing_id FK NULL, finish NULL,
+                   quantity, note,
+                   UNIQUE NULLS NOT DISTINCT (oracle_id, printing_id, finish))
 price_snapshots   (printing_id FK, finish, source, snapshot_date, price_cents,
                    PRIMARY KEY (printing_id, finish, source, snapshot_date))
 ingest_runs       (id PK, source, started_at, finished_at, status, row_count,
@@ -616,6 +620,39 @@ clipboard that refuses says so and points at the download, rather than opening a
 
 *Nothing about the user goes out.* No affiliate code, no tracking parameter — the only thing
 in the URL is a product id or a set and collector number from our own card data.
+
+**After the phases — What the missing cards cost, a wishlist, and price history** ✅
+
+Phase 7 priced the collection. These three price everything *else*, and all three turned on one
+observation: the weekly card ingest already streams all 110k cards, and that bulk file carries
+prices. Three integer columns on `printings` therefore cost nothing to fill, and they are the
+only way to answer a question about cards you do **not** own — `price_snapshots` is history and
+exists only for printings somebody owns.
+
+*The two price tables answer different questions and are not merged.* `printings.usd_cents` is
+"what does this cost today", refreshed weekly for every card in existence. `price_snapshots` is
+"what has my copy been worth", one row per owned pair per week. Collapsing them would mean
+either pricing 110k cards weekly or never pricing an unowned one.
+
+*A zero total means "no idea" as often as "nothing to buy".* About 7% of English printings have
+no price, so every cost travels with the count it was computed from — `missingPriced`,
+`unpricedRows` — and every surface checks that before leading with a number. Sorting sets by
+cost puts the unpriced ones last rather than first, which is the whole difference between a
+useful ordering and a confident lie.
+
+*`any` finish is priced at the cheapest finish that exists.* The scope says any copy ticks the
+box, so the cost of ticking it is the cheapest one you could buy; `LEAST` ignoring nulls is
+exactly the right semantics and not a trick.
+
+*The wishlist is the only list of missing cards that needs storing* — a set's want list falls
+out of completion and a deck's buy list falls out of the decklist, but intention is not derived
+from anything. `printing_id` nullable means "any printing", the unique key is `NULLS NOT
+DISTINCT` so that wish collides with itself, and the row counts what you already own so a card
+you just bought cannot quietly go back on the buy list.
+
+*Price history is per (printing, finish) and never summed.* A foil and a nonfoil are two
+markets; one line through both would show a price no copy ever traded at. One chart each, one
+hue, no legend, and nothing drawn at all until there are two points.
 
 ---
 

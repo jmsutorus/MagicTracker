@@ -12,6 +12,7 @@ import {
   type CompletionBucket,
 } from "@/lib/completion/queries";
 import { describeScope } from "@/lib/completion/scope";
+import { formatCents } from "@/lib/prices/constants";
 
 export const metadata = { title: "Set completion · MagicTracker" };
 
@@ -36,6 +37,18 @@ export default async function SetCompletionPage({
 
   const scopeSentence = describeScope(completion.scope, completion.applicable);
   const done = completion.target > 0 && completion.owned >= completion.target;
+
+  /*
+   * Summed here rather than in SQL: the rows are already loaded for the table
+   * below, and a second query to re-add numbers we are holding would be two
+   * sources for one figure.
+   */
+  const priced = missing.filter((card) => card.priceCents !== null);
+  const pricedMissing = priced.length;
+  const missingCents = priced.reduce(
+    (n, card) => n + (card.priceCents ?? 0),
+    0,
+  );
 
   return (
     <div className="flex flex-1 flex-col">
@@ -145,6 +158,26 @@ export default async function SetCompletionPage({
                 not whichever one is cheapest.
               */}
               <div className="mt-3 rounded-lg border border-border bg-surface p-4">
+                <p className="mb-3 text-sm">
+                  {pricedMissing === 0 ? (
+                    <span className="text-muted">
+                      None of the missing cards has a price yet.
+                    </span>
+                  ) : (
+                    <>
+                      <strong className="font-semibold">
+                        {formatCents(missingCents)}
+                      </strong>{" "}
+                      <span className="text-muted">
+                        to finish
+                        {pricedMissing < missing.length
+                          ? `, for the ${pricedMissing} of ${missing.length} that have a price`
+                          : ""}
+                        .
+                      </span>
+                    </>
+                  )}
+                </p>
                 <PurchaseButtons
                   label="every missing card"
                   entries={missing.map((card) => ({
@@ -165,6 +198,9 @@ export default async function SetCompletionPage({
                         Cost
                       </th>
                       <th className="px-4 py-2 font-medium">Rarity</th>
+                      <th className="px-4 py-2 text-right font-medium">
+                        Price
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -189,6 +225,11 @@ export default async function SetCompletionPage({
                         </td>
                         <td className="px-4 py-2 text-xs text-muted">
                           {card.rarity}
+                        </td>
+                        <td className="px-4 py-2 text-right font-mono text-xs text-muted">
+                          {card.priceCents === null
+                            ? "—"
+                            : formatCents(card.priceCents)}
                         </td>
                       </tr>
                     ))}

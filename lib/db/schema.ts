@@ -11,6 +11,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -212,6 +213,26 @@ export const printings = pgTable(
     /** Cross-references for Phase 4 (products) and Phase 7 (prices). */
     mtgjsonUuid: uuid("mtgjson_uuid"),
     tcgplayerId: integer("tcgplayer_id"),
+
+    /**
+     * The current market price per finish, in cents, from the same bulk file
+     * the rest of this row comes from.
+     *
+     * Distinct from `price_snapshots`, which is history and only ever covers
+     * printings somebody owns. These three are the *list* price of any card
+     * in the database, which is what a question about cards you do NOT own —
+     * what would it cost to finish this set, what is this wishlist worth —
+     * has to be answered from.
+     *
+     * Free to collect: the weekly card ingest already streams all 110k cards
+     * for everything else in this table. They are therefore only as fresh as
+     * the last ingest that saw a changed bulk file, and null wherever
+     * Scryfall has no price for that finish, which is common for promos and
+     * for printings that do not exist in that finish at all.
+     */
+    usdCents: integer("usd_cents"),
+    usdFoilCents: integer("usd_foil_cents"),
+    usdEtchedCents: integer("usd_etched_cents"),
 
     /** missing | placeholder | lowres | highres_scan */
     imageStatus: text("image_status"),
@@ -955,6 +976,72 @@ export const valueSnapshots = pgTable(
   ],
 );
 
+/**
+ * Cards you want but do not own — the third "what am I missing" list.
+ *
+ * The other two are derived: a set's want list falls out of completion, a
+ * deck's buy list falls out of the decklist. This one is nothing but
+ * intention, so it is the only one that needs storing.
+ *
+ * `printing_id` is nullable on purpose and means "any printing will do",
+ * which is the usual case — wanting *a* Sol Ring is a different wish from
+ * wanting the Secret Lair one, and the pricing follows: a row with a
+ * printing is priced at that printing, a row without is priced at the
+ * cheapest printing of the card.
+ */
+export const wishlistItems = pgTable(
+  "wishlist_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    oracleId: uuid("oracle_id")
+      .notNull()
+      .references(() => oracleCards.oracleId, { onDelete: "cascade" }),
+
+    /** Null = any printing. */
+    printingId: uuid("printing_id").references(() => printings.scryfallId, {
+      /*
+       * SET NULL, not RESTRICT. A wishlist row is a wish, not a possession:
+       * if the specific printing it named ever disappeared, "I still want
+       * this card, any printing" remains true and is worth keeping, whereas
+       * RESTRICT would block the delete over something nobody owns.
+       */
+      onDelete: "set null",
+    }),
+
+    /** Null = any finish. */
+    finish: text("finish"),
+
+    quantity: integer("quantity").notNull().default(1),
+
+    note: text("note"),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    /*
+     * NULLS NOT DISTINCT, because the nullable columns here carry meaning.
+     * Under the default, "any printing, any finish" of the same card would
+     * never collide with itself and you could add it ten times; Postgres 15+
+     * lets the key treat those nulls as the single value they represent.
+     */
+    unique("wishlist_items_card_key")
+      .on(table.oracleId, table.printingId, table.finish)
+      .nullsNotDistinct(),
+    index("wishlist_items_oracle_idx").on(table.oracleId),
+    check("wishlist_items_quantity_check", sql`${table.quantity} > 0`),
+    check(
+      "wishlist_items_finish_check",
+      sql`${table.finish} IS NULL OR ${table.finish} IN ('nonfoil', 'foil', 'etched')`,
+    ),
+  ],
+);
+
 export type Set = typeof sets.$inferSelect;
 export type OracleCard = typeof oracleCards.$inferSelect;
 export type Printing = typeof printings.$inferSelect;
@@ -971,3 +1058,5 @@ export type NewDeck = typeof decks.$inferInsert;
 export type DeckCard = typeof deckCards.$inferSelect;
 export type PriceSnapshot = typeof priceSnapshots.$inferSelect;
 export type ValueSnapshot = typeof valueSnapshots.$inferSelect;
+export type WishlistItem = typeof wishlistItems.$inferSelect;
+export type NewWishlistItem = typeof wishlistItems.$inferInsert;

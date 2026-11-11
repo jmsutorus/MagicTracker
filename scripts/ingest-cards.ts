@@ -105,6 +105,9 @@ const PRINTING_COLUMNS = [
   "released_at",
   "tcgplayer_id",
   "image_status",
+  "usd_cents",
+  "usd_foil_cents",
+  "usd_etched_cents",
 ] as const;
 
 function printingToCsv(p: PrintingRow): string {
@@ -131,6 +134,9 @@ function printingToCsv(p: PrintingRow): string {
       csvText(p.releasedAt),
       csvNumber(p.tcgplayerId),
       csvText(p.imageStatus),
+      csvNumber(p.usdCents),
+      csvNumber(p.usdFoilCents),
+      csvNumber(p.usdEtchedCents),
     ].join(",") + "\n"
   );
 }
@@ -292,11 +298,18 @@ async function main(): Promise<void> {
 
     // 4. Stream the card file.
     log("streaming cards (this is the slow part)...");
+    /*
+     * Dropped and recreated rather than reused. These are LIKE the real
+     * tables, so a staging table left behind by a crashed run has the column
+     * set from *that* run; after a migration adds a column, IF NOT EXISTS
+     * would quietly keep the old shape and the COPY would fail on a column
+     * the real table has.
+     */
     await client.query(`
-      CREATE UNLOGGED TABLE IF NOT EXISTS _staging_printings (LIKE printings);
-      TRUNCATE _staging_printings;
-      CREATE UNLOGGED TABLE IF NOT EXISTS _staging_oracle (LIKE oracle_cards);
-      TRUNCATE _staging_oracle;
+      DROP TABLE IF EXISTS _staging_printings;
+      CREATE UNLOGGED TABLE _staging_printings (LIKE printings);
+      DROP TABLE IF EXISTS _staging_oracle;
+      CREATE UNLOGGED TABLE _staging_oracle (LIKE oracle_cards);
     `);
 
     const webStream = await openBulkStream(bulkDownloadUri(bulk));
@@ -503,7 +516,10 @@ async function main(): Promise<void> {
         is_extra = EXCLUDED.is_extra,
         released_at = EXCLUDED.released_at,
         tcgplayer_id = EXCLUDED.tcgplayer_id,
-        image_status = EXCLUDED.image_status
+        image_status = EXCLUDED.image_status,
+        usd_cents = EXCLUDED.usd_cents,
+        usd_foil_cents = EXCLUDED.usd_foil_cents,
+        usd_etched_cents = EXCLUDED.usd_etched_cents
     `);
 
     await client.query("COMMIT");

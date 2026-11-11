@@ -19,7 +19,36 @@ export type SetProgress = {
   owned: number;
   /** 0-100, rounded. 100 only when owned === target and target > 0. */
   percent: number;
+  /**
+   * What the missing cards cost, in cents, counting only the ones that have a
+   * price. Zero when nothing is missing *and* when nothing missing is priced,
+   * which is why `missingPriced` travels with it: a $0 total means "no idea"
+   * as often as it means "nothing left to buy", and the UI must be able to
+   * tell those apart.
+   */
+  missingCents: number;
+  /** Missing printings in scope. */
+  missing: number;
+  /** How many of those have a price — the honesty check on `missingCents`. */
+  missingPriced: number;
 };
+
+/**
+ * The price of one printing for a completion finish, in SQL.
+ *
+ * `any` takes the cheapest finish that exists: the scope says any copy ticks
+ * the box, so the cost of ticking it is the cheapest one you could buy.
+ * `LEAST` ignores nulls, which is exactly right — a printing with no foil
+ * price still has a nonfoil one.
+ */
+const PRICE_FOR_SCOPE = sql`
+  CASE e.finish
+    WHEN 'nonfoil' THEN e.usd_cents
+    WHEN 'foil'    THEN e.usd_foil_cents
+    WHEN 'etched'  THEN e.usd_etched_cents
+    ELSE LEAST(e.usd_cents, e.usd_foil_cents, e.usd_etched_cents)
+  END
+`;
 
 export type CompletionBucket = {
   label: string;
@@ -59,6 +88,12 @@ export type MissingPrinting = {
   rarity: string;
   manaCost: string | null;
   colorIdentity: string[];
+  /**
+   * What this printing costs for the finish the scope asks for, in cents, or
+   * null when Scryfall has no price for it. Null rather than 0, because a
+   * missing price must not read as a free card in a total.
+   */
+  priceCents: number | null;
 };
 
 const RARITY_ORDER = ["common", "uncommon", "rare", "mythic", "special", "bonus"];
@@ -182,6 +217,8 @@ export async function listSetProgress(): Promise<SetProgress[]> {
     icon_svg_uri: string | null;
     target: number;
     owned: number;
+    missing_cents: string;
+    missing_priced: number;
   }>(sql`
     WITH owned_sets AS (
       SELECT DISTINCT p.set_code
@@ -207,7 +244,8 @@ export async function listSetProgress(): Promise<SetProgress[]> {
         LEFT JOIN completion_targets t ON t.set_code = os.set_code
     ),
     eligible AS (
-      SELECT p.set_code, p.scryfall_id, scope.finish
+      SELECT p.set_code, p.scryfall_id, scope.finish,
+             p.usd_cents, p.usd_foil_cents, p.usd_etched_cents
         FROM printings p
         JOIN scope ON scope.set_code = p.set_code
         JOIN caps  ON caps.set_code  = p.set_code
@@ -215,6 +253,16 @@ export async function listSetProgress(): Promise<SetProgress[]> {
          AND (NOT scope.booster_only   OR NOT caps.has_booster  OR p.is_booster)
          AND (    scope.include_promos OR NOT caps.has_nonpromo OR NOT p.is_promo)
          AND (    scope.include_extras OR NOT caps.has_nonextra OR NOT p.is_extra)
+    ),
+    scored AS (
+      SELECT e.set_code,
+             EXISTS (
+               SELECT 1 FROM collection_items c
+                WHERE c.printing_id = e.scryfall_id
+                  AND (e.finish = 'any' OR c.finish = e.finish)
+             ) AS owned,
+             ${PRICE_FOR_SCOPE} AS price_cents
+        FROM eligible e
     )
     SELECT s.code,
            s.name,
@@ -222,14 +270,14 @@ export async function listSetProgress(): Promise<SetProgress[]> {
            s.released_at::text AS released_at,
            s.icon_svg_uri,
            count(*)::int AS target,
+           count(*) FILTER (WHERE e.owned)::int AS owned,
+           coalesce(
+             sum(e.price_cents) FILTER (WHERE NOT e.owned), 0
+           )::text AS missing_cents,
            count(*) FILTER (
-             WHERE EXISTS (
-               SELECT 1 FROM collection_items c
-                WHERE c.printing_id = e.scryfall_id
-                  AND (e.finish = 'any' OR c.finish = e.finish)
-             )
-           )::int AS owned
-      FROM eligible e
+             WHERE NOT e.owned AND e.price_cents IS NOT NULL
+           )::int AS missing_priced
+      FROM scored e
       JOIN sets s ON s.code = e.set_code
      GROUP BY s.code, s.name, s.set_type, s.released_at, s.icon_svg_uri
      ORDER BY s.released_at DESC NULLS LAST, s.name ASC
@@ -244,6 +292,9 @@ export async function listSetProgress(): Promise<SetProgress[]> {
     target: r.target,
     owned: r.owned,
     percent: percentOf(r.owned, r.target),
+    missingCents: Number(r.missing_cents),
+    missing: Math.max(r.target - r.owned, 0),
+    missingPriced: r.missing_priced,
   }));
 }
 
@@ -407,6 +458,7 @@ export async function listMissingPrintings(
     rarity: string;
     mana_cost: string | null;
     color_identity: string[] | null;
+    price_cents: number | null;
   }>(sql`
     WITH ${capsFragment(code)}, ${scopeCte(code)}, ${ownedCte(code)}
     SELECT p.scryfall_id::text AS scryfall_id,
@@ -415,7 +467,13 @@ export async function listMissingPrintings(
            p.collector_number,
            p.rarity,
            o.mana_cost,
-           o.color_identity
+           o.color_identity,
+           CASE scope.finish
+             WHEN 'nonfoil' THEN p.usd_cents
+             WHEN 'foil'    THEN p.usd_foil_cents
+             WHEN 'etched'  THEN p.usd_etched_cents
+             ELSE LEAST(p.usd_cents, p.usd_foil_cents, p.usd_etched_cents)
+           END AS price_cents
       FROM printings p
       JOIN oracle_cards o ON o.oracle_id = p.oracle_id
       CROSS JOIN scope
@@ -436,6 +494,7 @@ export async function listMissingPrintings(
     rarity: r.rarity,
     manaCost: r.mana_cost,
     colorIdentity: r.color_identity ?? [],
+    priceCents: r.price_cents,
   }));
 }
 

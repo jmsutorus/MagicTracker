@@ -6,6 +6,10 @@
  * aren't numbers — can be unit tested without a database or a 500 MB download.
  */
 
+// Pure helpers and a type: nothing here pulls in the HTTP client at runtime.
+import { priceForFinish } from "@/lib/prices/project";
+import type { ScryfallPrices } from "@/lib/scryfall/client";
+
 export type ScryfallCardFace = {
   oracle_id?: string;
   name?: string;
@@ -52,6 +56,7 @@ export type ScryfallCard = {
   edhrec_rank?: number;
   card_faces?: ScryfallCardFace[];
   tcgplayer_id?: number;
+  prices?: ScryfallPrices;
 };
 
 export type PrintingRow = {
@@ -76,6 +81,10 @@ export type PrintingRow = {
   releasedAt: string | null;
   tcgplayerId: number | null;
   imageStatus: string | null;
+  /** Current market price per finish, in cents; null where Scryfall has none. */
+  usdCents: number | null;
+  usdFoilCents: number | null;
+  usdEtchedCents: number | null;
 };
 
 export type OracleRow = {
@@ -266,6 +275,13 @@ export function projectCard(card: ScryfallCard): ProjectedCard | null {
     releasedAt: card.released_at ?? null,
     tcgplayerId: card.tcgplayer_id ?? null,
     imageStatus: card.image_status ?? null,
+    /*
+     * The same parser the weekly price job uses, so a dollar means the same
+     * thing in both tables and neither can drift into float arithmetic.
+     */
+    usdCents: priceForFinish(card.prices, "nonfoil"),
+    usdFoilCents: priceForFinish(card.prices, "foil"),
+    usdEtchedCents: priceForFinish(card.prices, "etched"),
   };
 
   const oracle: OracleRow = {

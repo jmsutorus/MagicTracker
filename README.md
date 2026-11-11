@@ -2,8 +2,8 @@
 
 Personal Magic: The Gathering collection tracker — collection entry, set
 completion, sealed product adds, Commander decks, cubes, pasted-list import,
-weekly value tracking, and shareable decklists. Built to run on free tiers
-indefinitely, with no subscription.
+a wishlist, weekly value tracking, and shareable decklists. Built to run on
+free tiers indefinitely, with no subscription.
 
 See [PLAN.md](./PLAN.md) for the architecture, data model, and phase plan,
 including why the stack is what it is.
@@ -12,7 +12,8 @@ including why the stack is what it is.
 collection entry with locations, per-set completion, precon adds, Commander
 decks with a legality engine and buy list, cubes with a size target and a
 colour/curve/type breakdown, paste import, one-click buy lists for TCGplayer
-and Mana Pool, the weekly price snapshot with its
+and Mana Pool, cost-to-finish on every set, a wishlist, per-card price
+history, the weekly price snapshot with its
 value page, a home-screen icon, exports with a weekly backup, and unlisted
 deck share links.
 
@@ -241,6 +242,7 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run prices:smoke` | End-to-end check of the price layer against the real database and Scryfall |
 | `npm run polish:smoke` | End-to-end check of share links and the export against the real database |
 | `npm run cube:smoke` | End-to-end check of cube decks against the real database |
+| `npm run wishlist:smoke` | End-to-end check of the wishlist, cost-to-finish and price history |
 | `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
 
 ## The collection
@@ -485,6 +487,57 @@ checks against both themes' surfaces. Each distribution is one series in
 `--chart-line` — the token the value chart uses, the project's only
 validator-passing mark colour — with the label carrying the identity.
 
+## What the missing cards cost
+
+Every printing carries its current price — `usd_cents`, `usd_foil_cents`,
+`usd_etched_cents` — taken from the same Scryfall bulk file the weekly card
+ingest already streams for everything else in the row. That is what makes
+"what would it cost to finish this set" answerable at all: `price_snapshots`
+is history and only ever covers printings **somebody owns**, and every
+question here is about cards you do *not* own.
+
+They are therefore only as fresh as the last ingest that saw a changed bulk
+file — weekly, not live — and null wherever Scryfall has no price, which is
+about 7% of English printings and concentrated in promos.
+
+**Cost to finish** follows each set's own scope rules. The finish the scope
+asks for picks the column; `any` takes the cheapest finish that exists,
+because the scope says any copy ticks the box and the cost of ticking it is
+the cheapest one you could buy. `/sets` sorts by it — *Cheapest to finish* is
+a different question from *Closest to done*, since four mythics left is
+further from done than forty commons.
+
+A set whose missing cards have no prices reports `$0` with
+`missingPriced = 0`, and every surface that uses the number checks that
+first: a zero total means "no idea" as often as it means "nothing left to
+buy", and sorting by it would otherwise put the least-known set at the top.
+
+## The wishlist
+
+The other two "what am I missing" lists are derived — a set's want list falls
+out of completion, a deck's buy list falls out of the decklist. A wishlist is
+nothing but intention, so it is the only one that needs a table.
+
+| | |
+|---|---|
+| Any printing | `printing_id` is nullable and means exactly that, which is the usual wish. Priced at the cheapest English printing of the card |
+| A particular printing | Priced at that printing and nothing else — naming it was the point |
+| Adding it twice | Raises the quantity rather than failing. The unique key is `NULLS NOT DISTINCT`, so "any printing" collides with itself the way a reader expects while "the Secret Lair one" stays a separate row |
+| Already owned | Each row counts the copies you own that satisfy it, and those are left **off** the buy list. Buying a card you just bought is the mistake the page exists to prevent |
+| Clearing | One action removes the wishes the collection already covers, asked rather than done automatically — a playset is four, and owning one does not end the wish |
+
+## Price history
+
+`price_snapshots` has a weekly row per owned (printing, finish), and a card's
+page charts it: one chart per pair, never a combined line. A foil and a
+nonfoil are two markets, and a line averaging them would show a price no copy
+ever traded at. Each chart is a single series, so each is labelled by its
+heading and carries no legend, and nothing is drawn until there are two
+points — one point is a dot, not a trend.
+
+A card you do not own has no history at all, which is correct rather than
+missing: the price job prices the collection.
+
 ## Buying what's missing
 
 Three places in the app know what you don't have — a deck's buy list, a set's
@@ -640,19 +693,21 @@ nickel moves a collection more than one card up a dollar.
 ### The export
 
 **Download a copy** on the dashboard (`GET /api/export`) gives you one JSON
-file: locations, every collection row, every deck and its cards, and your
-per-set completion rules. Every row carries the card's name, set code and
-collector number beside the ids, so the file is still useful if the ids ever
-stop matching — or to any tool that has never heard of this app.
+file: locations, every collection row, every deck and its cards, your
+wishlist, and your per-set completion rules. Every row carries the card's
+name, set code and collector number beside the ids, so the file is still
+useful if the ids ever stop matching — or to any tool that has never heard of
+this app.
 
 The card tables are **not** in it. They rebuild from Scryfall in about 35
 seconds, and including 110k printings would turn a file you can read into one
 you cannot.
 
-`formatVersion` is **2** since cubes: `decks[].targetSize` was added, and a
-cube restored from a version-1 file would come back without the size it was
-built to. Nothing was removed, so a reader that only knows version 1 still
-reads everything it knew.
+`formatVersion` is **3** since the wishlist, which added a whole top-level
+`wishlist` array. (2 was cubes: `decks[].targetSize`, without which a cube
+came back missing the size it was built to.) Nothing has ever been renamed or
+removed, so a reader that only knows an earlier version still reads
+everything it knew.
 
 The same export runs as the last step of the weekly job
 (`scripts/export-backup.ts`) and is gzipped to a bucket:

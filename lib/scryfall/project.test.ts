@@ -195,3 +195,46 @@ test("color identity defaults to an empty array, never null", () => {
   assert.ok(result);
   assert.deepEqual(result.oracle.colorIdentity, []);
 });
+
+// --- prices carried off the bulk file -------------------------------------
+
+test("prices land on the printing row as cents, per finish", () => {
+  const result = projectCard(
+    card({
+      finishes: ["nonfoil", "foil", "etched"],
+      prices: {
+        usd: "1.25",
+        usd_foil: "12.78",
+        usd_etched: "40",
+        eur: "9.99",
+        tix: "0.02",
+      },
+    }),
+  );
+  assert.notEqual(result, null);
+  assert.equal(result!.printing.usdCents, 125);
+  assert.equal(result!.printing.usdFoilCents, 1278);
+  // A bare integer is dollars, not cents.
+  assert.equal(result!.printing.usdEtchedCents, 4000);
+});
+
+test("a missing price for a finish is null, not zero", () => {
+  // Zero would be a price — a free card — and would drag a cost-to-finish
+  // total down as if the card were already covered.
+  const result = projectCard(card({ prices: { usd: "0.35" } }));
+  assert.equal(result!.printing.usdCents, 35);
+  assert.equal(result!.printing.usdFoilCents, null);
+  assert.equal(result!.printing.usdEtchedCents, null);
+});
+
+test("a card with no prices block at all prices as null", () => {
+  const result = projectCard(card());
+  assert.equal(result!.printing.usdCents, null);
+  assert.equal(result!.printing.usdFoilCents, null);
+  assert.equal(result!.printing.usdEtchedCents, null);
+});
+
+test("an unparseable price is null rather than a guess", () => {
+  const result = projectCard(card({ prices: { usd: "1,25" } }));
+  assert.equal(result!.printing.usdCents, null);
+});

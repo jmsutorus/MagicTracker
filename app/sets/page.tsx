@@ -3,13 +3,77 @@ import Link from "next/link";
 import { AppHeader } from "@/components/app-header";
 import { ProgressBar } from "@/components/progress-bar";
 import { requireUser } from "@/lib/auth/dal";
-import { listSetProgress, searchSets } from "@/lib/completion/queries";
+import {
+  listSetProgress,
+  searchSets,
+  type SetProgress,
+} from "@/lib/completion/queries";
+import { formatCents } from "@/lib/prices/constants";
 
 export const metadata = { title: "Sets · MagicTracker" };
 
 function one(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0];
   return value;
+}
+
+/**
+ * How the list is ordered.
+ *
+ * `cheapest` is the one worth having: completion plus the prices the card
+ * ingest already carries answers "which set can I actually finish", which is
+ * a different question from "which am I closest to" — four mythics left is
+ * further from done than forty commons.
+ */
+const SORTS = {
+  released: "Newest first",
+  closest: "Closest to done",
+  cheapest: "Cheapest to finish",
+} as const;
+
+type Sort = keyof typeof SORTS;
+
+function isSort(value: string | undefined): value is Sort {
+  return value !== undefined && value in SORTS;
+}
+
+function sortProgress(rows: SetProgress[], sort: Sort): SetProgress[] {
+  const copy = [...rows];
+  if (sort === "closest") {
+    // Complete sets have nothing left to be close to, so they go last.
+    return copy.sort(
+      (a, b) =>
+        Number(a.missing === 0) - Number(b.missing === 0) ||
+        b.percent - a.percent ||
+        a.missing - b.missing,
+    );
+  }
+  if (sort === "cheapest") {
+    /*
+     * A set with no priced missing card sorts last rather than first: its
+     * total is zero because nothing is known, not because it is free. Done
+     * sets go last too — they are not a thing to buy.
+     */
+    const rank = (r: SetProgress) =>
+      r.missing === 0 || r.missingPriced === 0 ? 1 : 0;
+    return copy.sort(
+      (a, b) =>
+        rank(a) - rank(b) ||
+        a.missingCents - b.missingCents ||
+        a.missing - b.missing,
+    );
+  }
+  return copy;
+}
+
+/** What a row says about the money, which depends on what is known. */
+function costLabel(p: SetProgress): string | null {
+  if (p.missing === 0) return null;
+  if (p.missingPriced === 0) return "no prices yet";
+  const total = formatCents(p.missingCents);
+  return p.missingPriced < p.missing
+    ? `${total} for ${p.missingPriced} of ${p.missing}`
+    : `${total} to finish`;
 }
 
 export default async function SetsPage({
@@ -22,13 +86,22 @@ export default async function SetsPage({
 
   const params = await searchParams;
   const q = one(params.q)?.slice(0, 60) ?? "";
+  const sortParam = one(params.sort);
+  const sort: Sort = isSort(sortParam) ? sortParam : "released";
 
-  const [progress, searchResults] = await Promise.all([
+  const [unsorted, searchResults] = await Promise.all([
     listSetProgress(),
     q ? searchSets(q) : Promise.resolve([]),
   ]);
 
+  const progress = sortProgress(unsorted, sort);
   const complete = progress.filter((p) => p.target > 0 && p.owned >= p.target);
+  const outstanding = progress.filter((p) => p.missing > 0);
+  const toFinish = outstanding.reduce((n, p) => n + p.missingCents, 0);
+  const unpriced = outstanding.reduce(
+    (n, p) => n + (p.missing - p.missingPriced),
+    0,
+  );
 
   return (
     <div className="flex flex-1 flex-col">
@@ -105,10 +178,58 @@ export default async function SetsPage({
 
         {progress.length > 0 ? (
           <section className="mt-8">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-              Your sets
-            </h2>
-            <ul className="mt-2 space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
+                Your sets
+              </h2>
+              <nav className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs">
+                {(Object.keys(SORTS) as Sort[]).map((key) => (
+                  <Link
+                    key={key}
+                    href={
+                      key === "released"
+                        ? `/sets${q ? `?q=${encodeURIComponent(q)}` : ""}`
+                        : `/sets?sort=${key}${q ? `&q=${encodeURIComponent(q)}` : ""}`
+                    }
+                    className={
+                      key === sort
+                        ? "font-medium text-foreground"
+                        : "text-muted underline underline-offset-4 hover:text-foreground"
+                    }
+                    aria-current={key === sort ? "true" : undefined}
+                  >
+                    {SORTS[key]}
+                  </Link>
+                ))}
+              </nav>
+            </div>
+
+            {outstanding.length > 0 ? (
+              <p className="mt-2 text-sm text-muted">
+                {unpriced === 0 ? (
+                  <>
+                    Everything you&rsquo;re missing across{" "}
+                    {outstanding.length.toLocaleString()} set
+                    {outstanding.length === 1 ? "" : "s"} would cost{" "}
+                    <strong className="font-semibold text-foreground">
+                      {formatCents(toFinish)}
+                    </strong>
+                    .
+                  </>
+                ) : (
+                  <>
+                    The missing cards that have a price would cost{" "}
+                    <strong className="font-semibold text-foreground">
+                      {formatCents(toFinish)}
+                    </strong>
+                    ; {unpriced.toLocaleString()} more have no price.
+                  </>
+                )}{" "}
+                Prices come from the weekly card ingest.
+              </p>
+            ) : null}
+
+            <ul className="mt-3 space-y-2">
               {progress.map((p) => (
                 <li key={p.code}>
                   <Link
@@ -132,6 +253,11 @@ export default async function SetsPage({
                       </span>
                     </div>
                     <ProgressBar percent={p.percent} className="mt-2" />
+                    {costLabel(p) ? (
+                      <p className="mt-1.5 text-xs text-muted">
+                        {p.missing.toLocaleString()} missing · {costLabel(p)}
+                      </p>
+                    ) : null}
                   </Link>
                 </li>
               ))}

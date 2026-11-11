@@ -404,3 +404,108 @@ export async function getLastPriceRun(): Promise<{
     ? { startedAt: row.started_at, status: row.status, rowCount: row.row_count }
     : null;
 }
+
+export type PriceHistorySeries = {
+  printingId: string;
+  setCode: string;
+  collectorNumber: string;
+  finish: string;
+  /** Copies of this exact (printing, finish) in the collection. */
+  copies: number;
+  /** Oldest first, one point per weekly snapshot. */
+  points: ValuePoint[];
+  latestCents: number | null;
+  /** Change from the first recorded point to the latest, in cents. */
+  changeCents: number | null;
+};
+
+/**
+ * Price history for the copies of one card you actually own.
+ *
+ * Only owned printings have history: `price_snapshots` is written from the
+ * collection, so asking for a card you do not own correctly returns nothing
+ * rather than an empty chart implying the data went missing.
+ *
+ * Returned per (printing, finish) and never summed across them. A foil and a
+ * nonfoil of the same card are two different markets, and averaging them
+ * would draw a line that no copy ever traded at.
+ */
+export async function getOwnedPriceHistory(
+  oracleId: string,
+  source: PriceSource = DEFAULT_PRICE_SOURCE,
+  limit = 3,
+): Promise<PriceHistorySeries[]> {
+  const db = getDb();
+
+  const { rows } = await db.execute<{
+    printing_id: string;
+    set_code: string;
+    collector_number: string;
+    finish: string;
+    copies: number;
+    date: string | null;
+    cents: number | null;
+  }>(sql`
+    WITH owned AS (
+      SELECT c.printing_id, c.finish, sum(c.quantity)::int AS copies
+        FROM collection_items c
+        JOIN printings p ON p.scryfall_id = c.printing_id
+       WHERE p.oracle_id = ${oracleId}::uuid
+       GROUP BY c.printing_id, c.finish
+    )
+    SELECT o.printing_id::text AS printing_id,
+           p.set_code,
+           p.collector_number,
+           o.finish,
+           o.copies,
+           ps.snapshot_date::text AS date,
+           ps.price_cents AS cents
+      FROM owned o
+      JOIN printings p ON p.scryfall_id = o.printing_id
+      LEFT JOIN price_snapshots ps
+             ON ps.printing_id = o.printing_id
+            AND ps.finish = o.finish
+            AND ps.source = ${source}
+     ORDER BY o.copies DESC,
+              p.set_code ASC,
+              p.collector_number ASC,
+              o.finish ASC,
+              ps.snapshot_date ASC
+  `);
+
+  const byPair = new Map<string, PriceHistorySeries>();
+
+  for (const row of rows) {
+    const key = `${row.printing_id}:${row.finish}`;
+    let series = byPair.get(key);
+    if (!series) {
+      series = {
+        printingId: row.printing_id,
+        setCode: row.set_code,
+        collectorNumber: row.collector_number,
+        finish: row.finish,
+        copies: row.copies,
+        points: [],
+        latestCents: null,
+        changeCents: null,
+      };
+      byPair.set(key, series);
+    }
+    // A LEFT JOIN row with no snapshot is an owned card the price job has
+    // not covered yet: the pair is real, the history is empty.
+    if (row.date !== null && row.cents !== null) {
+      series.points.push({ date: row.date, cents: row.cents });
+    }
+  }
+
+  const all = [...byPair.values()];
+  for (const series of all) {
+    const first = series.points[0];
+    const last = series.points[series.points.length - 1];
+    series.latestCents = last ? last.cents : null;
+    series.changeCents =
+      first && last && series.points.length > 1 ? last.cents - first.cents : null;
+  }
+
+  return all.slice(0, limit);
+}
