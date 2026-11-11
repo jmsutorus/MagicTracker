@@ -33,18 +33,109 @@ export const DECK_BOARD_LABELS: Record<DeckBoard, string> = {
 export const COUNTED_BOARDS: readonly DeckBoard[] = ["commander", "main"];
 
 /**
- * Only Commander is validated.
+ * What a deck is, which decides which rules it is held to.
  *
- * "I mostly play Commander and sealed", and sealed is not a constructed
- * format with a decklist. The column exists so a second format can be added
- * without a migration, but every rule in lib/decks/legality.ts is a Commander
- * rule and nothing pretends otherwise.
+ * Two, because they are the two things this collection is actually for:
+ * Commander, and a cube. Neither is "a deck with different rules turned on" —
+ * a cube is a draft pool of 360-odd singleton cards with no commander, no
+ * colour-identity restriction and no ban list, so it gets its own report in
+ * lib/decks/cube.ts rather than a Commander verdict with the failing checks
+ * suppressed. Everything *structural* is shared: a cube lives in `decks`, its
+ * cards live in `deck_cards`, and owning, claiming and buying work the same,
+ * because a cube is a stack of cards you physically have.
+ *
+ * Sealed is still not here: a sealed pool is not a list you curate.
  */
-export const DECK_FORMATS = ["commander"] as const;
+export const DECK_FORMATS = ["commander", "cube"] as const;
 export type DeckFormat = (typeof DECK_FORMATS)[number];
+
+export const DECK_FORMAT_LABELS: Record<DeckFormat, string> = {
+  commander: "Commander",
+  cube: "Cube",
+};
+
+export function isDeckFormat(value: unknown): value is DeckFormat {
+  return (
+    typeof value === "string" &&
+    (DECK_FORMATS as readonly string[]).includes(value)
+  );
+}
 
 /** A Commander deck is exactly 100 cards, commanders included. */
 export const COMMANDER_DECK_SIZE = 100;
+
+/**
+ * How big a cube is meant to be.
+ *
+ * Unlike Commander's 100, this is the owner's decision, so it is stored per
+ * deck (`decks.target_size`) rather than fixed here. The default and the
+ * offered choices are the sizes that come out of the draft arithmetic below:
+ * 360 is eight drafters at three 15-card packs, 540 is twelve, 450 is ten,
+ * 180 is four.
+ */
+export const DEFAULT_CUBE_SIZE = 360;
+export const CUBE_SIZE_CHOICES: readonly number[] = [180, 360, 450, 540, 720];
+export const MIN_CUBE_SIZE = 1;
+
+/**
+ * An upper bound, so a typo cannot ask for a cube with a million slots.
+ * Above the largest cube anyone drafts, and above MAX_IMPORT_LINES, so a
+ * paste can always fill one.
+ */
+export const MAX_CUBE_SIZE = 2_000;
+
+/** A draft pack, and how many each player opens — the usual booster draft. */
+export const DRAFT_PACK_SIZE = 15;
+export const DRAFT_PACKS_PER_PLAYER = 3;
+
+/**
+ * How many drafters a cube of this size seats, or null when it does not
+ * divide evenly.
+ *
+ * This is the whole reason cubes come in multiples of 45: a 360 cube is
+ * exactly eight players × three packs × fifteen cards, with nothing left
+ * over. Saying so is more useful than the number alone, and saying nothing
+ * when it does not divide is better than rounding — a cube of 400 seats
+ * eight drafters and leaves 40 cards in the box, which is the owner's
+ * business, not a verdict.
+ */
+export function draftersFor(size: number): number | null {
+  const perPlayer = DRAFT_PACK_SIZE * DRAFT_PACKS_PER_PLAYER;
+  if (!Number.isSafeInteger(size) || size <= 0) return null;
+  if (size % perPlayer !== 0) return null;
+  return size / perPlayer;
+}
+
+/**
+ * The size a deck is measured against: fixed for Commander, stored for a
+ * cube. One function so the page, the list and the report cannot disagree.
+ */
+export function targetSizeFor(
+  format: DeckFormat,
+  storedTargetSize: number | null,
+): number {
+  if (format === "commander") return COMMANDER_DECK_SIZE;
+  return storedTargetSize ?? DEFAULT_CUBE_SIZE;
+}
+
+/**
+ * The boards a format actually has.
+ *
+ * A cube has no command zone, so the editor never offers one. Cards already
+ * sitting there — a Commander deck whose list was pasted into a cube, say —
+ * still count and are still shown; the cube report asks you to move them
+ * rather than hiding them.
+ */
+export function boardsFor(format: DeckFormat): readonly DeckBoard[] {
+  return format === "cube" ? ["main", "maybe"] : DECK_BOARDS;
+}
+
+/** What the `main` board is called, which is not "Deck" for a cube. */
+export function boardLabel(format: DeckFormat, board: DeckBoard): string {
+  if (format === "cube" && board === "main") return "Cube list";
+  if (format === "cube" && board === "maybe") return "Considering";
+  return DECK_BOARD_LABELS[board];
+}
 
 /** The most commanders a legal deck can have. */
 export const MAX_COMMANDERS = 2;

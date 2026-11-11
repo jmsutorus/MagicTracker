@@ -53,6 +53,23 @@ async function main() {
 
   const db = getDb();
 
+  type Deck = NonNullable<Awaited<ReturnType<typeof queries.getDeck>>>;
+
+  /**
+   * The Commander verdict, asserting that is what this deck has.
+   *
+   * `getDeck` returns a tagged verdict since cubes exist (see
+   * lib/decks/queries.ts), so reaching for the Commander report is a claim
+   * about the deck — and one worth failing on rather than narrowing away
+   * with a cast, since every assertion below depends on it.
+   */
+  function report(deck: Deck) {
+    if (deck.verdict.kind !== "commander") {
+      throw new Error(`${deck.name} is not a Commander deck`);
+    }
+    return deck.verdict.report;
+  }
+
   // ---- pre-clean anything an interrupted run left behind ------------------
   await db.execute(sql`
     DELETE FROM decks WHERE name IN (${DECK_A}, ${DECK_B}, ${`${DECK_A} renamed`})
@@ -110,8 +127,8 @@ async function main() {
   const empty = await queries.getDeck(created.id);
   assert.ok(empty);
   check("an empty deck reports both missing things and nothing else", () => {
-    assert.equal(empty.legality.legal, false);
-    assert.deepEqual(empty.legality.problems.map((p) => p.code).sort(), [
+    assert.equal(report(empty).legal, false);
+    assert.deepEqual(report(empty).problems.map((p) => p.code).sort(), [
       "deck_size",
       "no_commander",
     ]);
@@ -148,7 +165,7 @@ async function main() {
   assert.ok(precon);
 
   check("the precon copied across as exactly 100 cards", () =>
-    assert.equal(precon.legality.cardCount, 100),
+    assert.equal(report(precon).cardCount, 100),
   );
 
   check("it has one commander, and it is a legendary creature", () => {
@@ -159,19 +176,19 @@ async function main() {
 
   check("a real precon is reported legal — every rule, real data", () => {
     assert.deepEqual(
-      precon.legality.problems,
+      report(precon).problems,
       [],
-      `unexpected problems: ${precon.legality.problems.map((p) => p.message).join(" | ")}`,
+      `unexpected problems: ${report(precon).problems.map((p) => p.message).join(" | ")}`,
     );
-    assert.equal(precon.legality.legal, true);
+    assert.equal(report(precon).legal, true);
   });
 
   check("its colour identity came from the commander", () => {
-    assert.ok(precon.legality.colorIdentity.length > 0);
+    assert.ok(report(precon).colorIdentity.length > 0);
     const commander = precon.cards.find((c) => c.board === "commander");
     assert.ok(commander);
     assert.deepEqual(
-      precon.legality.colorIdentity,
+      report(precon).colorIdentity,
       legality.sortColors(commander.colorIdentity),
     );
   });
@@ -180,7 +197,7 @@ async function main() {
     for (const card of precon.cards) {
       for (const color of card.colorIdentity) {
         assert.ok(
-          precon.legality.colorIdentity.includes(color),
+          report(precon).colorIdentity.includes(color),
           `${card.name} is ${color}`,
         );
       }
@@ -425,7 +442,7 @@ async function main() {
   const withOffColor = await queries.getDeck(created.id);
   assert.ok(withOffColor);
   check("and the deck reports it as an identity error", () => {
-    const problem = withOffColor.legality.problems.find(
+    const problem = report(withOffColor).problems.find(
       (p) => p.code === "color_identity",
     );
     assert.ok(problem, "no identity problem reported");
@@ -451,7 +468,7 @@ async function main() {
   const withBanned = await queries.getDeck(created.id);
   assert.ok(withBanned);
   check("a banned card is reported by name", () => {
-    const problem = withBanned.legality.problems.find(
+    const problem = report(withBanned).problems.find(
       (p) => p.code === "banned",
     );
     assert.ok(problem);
@@ -472,7 +489,7 @@ async function main() {
   const withTwo = await queries.getDeck(created.id);
   assert.ok(withTwo);
   check("two copies breaks singleton", () =>
-    assert.ok(withTwo.legality.problems.some((p) => p.code === "singleton")),
+    assert.ok(report(withTwo).problems.some((p) => p.code === "singleton")),
   );
 
   const toZero = await mutations.adjustDeckCard(lotusRow.id, -2);
@@ -516,7 +533,7 @@ async function main() {
   );
 
   check("a non-commander in the command zone is an error", () => {
-    const problem = withTwoCommanders.legality.problems.find(
+    const problem = report(withTwoCommanders).problems.find(
       (p) => p.code === "invalid_commander",
     );
     assert.ok(problem, `${offColor.name} was accepted as a commander`);
@@ -532,9 +549,9 @@ async function main() {
     const maybes = withMaybe.cards.filter((c) => c.board === "maybe");
     assert.equal(maybes.length, 1);
     // One commander remains, so the count is 1 rather than 2.
-    assert.equal(withMaybe.legality.cardCount, 1);
+    assert.equal(report(withMaybe).cardCount, 1);
     assert.ok(
-      !withMaybe.legality.problems.some((p) => p.code === "color_identity"),
+      !report(withMaybe).problems.some((p) => p.code === "color_identity"),
       "a maybeboard card was checked against colour identity",
     );
     assert.ok(!withMaybe.missing.some((m) => m.name === offColor.name));

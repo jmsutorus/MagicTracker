@@ -15,7 +15,9 @@ import {
   setDeckCardBoard,
   setDeckLocation,
   setDeckNotes,
+  setDeckTargetSize,
   type AddDeckCardInput,
+  type NewDeckOptions,
 } from "@/lib/decks/mutations";
 import { createShareLink, revokeShareLink } from "@/lib/decks/share";
 
@@ -39,10 +41,25 @@ function revalidateDeck(deckId?: string) {
   revalidatePath("/");
 }
 
-export async function createDeckAction(name: string) {
+export async function createDeckAction(
+  name: string,
+  options: NewDeckOptions = {},
+) {
   await requireUser();
-  const result = await createDeck(name);
+  // The options arrive from a form over HTTP, so `format` is a string and
+  // `targetSize` is whatever was posted. createDeck checks both.
+  const result = await createDeck(name, options);
   if (result.ok) revalidateDeck(result.id);
+  return result;
+}
+
+export async function setDeckTargetSizeAction(
+  deckId: string,
+  targetSize: number,
+) {
+  await requireUser();
+  const result = await setDeckTargetSize(deckId, targetSize);
+  if (result.ok) revalidateDeck(deckId);
   return result;
 }
 

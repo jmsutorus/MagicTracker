@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
+import { CubeReportPanel } from "@/components/cube-report";
+import { CubeSizeForm } from "@/components/cube-size-form";
 import { DeckCardControls } from "@/components/deck-card-controls";
 import { DeckCardSearch } from "@/components/deck-card-search";
 import { DeckShare } from "@/components/deck-share";
@@ -13,10 +15,12 @@ import { listLocations } from "@/lib/collection/queries";
 import {
   COMMANDER_DECK_SIZE,
   DECK_BOARDS,
-  DECK_BOARD_LABELS,
+  DECK_FORMAT_LABELS,
+  boardLabel,
   type DeckBoard,
+  type DeckFormat,
 } from "@/lib/decks/constants";
-import { formatColorIdentity } from "@/lib/decks/legality";
+import { formatColorIdentity, type LegalityReport } from "@/lib/decks/legality";
 import { getDeck, type DeckCardRow } from "@/lib/decks/queries";
 import { getShareState } from "@/lib/decks/share";
 
@@ -66,19 +70,6 @@ export default async function DeckPage({
   const neededCopies = deck.missing.reduce((n, m) => n + m.need, 0);
   const allocatedCount = deck.cards.filter((c) => c.isAllocated).length;
 
-  const ownedPercent =
-    deck.legality.cardCount === 0
-      ? 0
-      : Math.min(
-          Math.round((ownedCopies / deck.legality.cardCount) * 100),
-          100,
-        );
-
-  const errors = deck.legality.problems.filter((p) => p.severity === "error");
-  const warnings = deck.legality.problems.filter(
-    (p) => p.severity === "warning",
-  );
-
   return (
     <div className="flex flex-1 flex-col">
       <AppHeader current="decks" />
@@ -93,72 +84,39 @@ export default async function DeckPage({
 
         <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">{deck.name}</h1>
-          <span className="font-mono text-sm uppercase text-muted">
-            {formatColorIdentity(deck.legality.colorIdentity)}
-          </span>
+          {deck.verdict.kind === "commander" ? (
+            <span className="font-mono text-sm uppercase text-muted">
+              {formatColorIdentity(deck.verdict.report.colorIdentity)}
+            </span>
+          ) : (
+            <span className="text-sm text-muted">
+              {DECK_FORMAT_LABELS[deck.format]} · {deck.targetSize} cards
+            </span>
+          )}
         </div>
 
-        {/* ---- the verdict ------------------------------------------------ */}
-        <section className="mt-6 rounded-lg border border-border bg-surface p-5">
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <span className="text-3xl font-semibold">
-              {deck.legality.cardCount}
-              <span className="text-xl text-muted">
-                {" / "}
-                {COMMANDER_DECK_SIZE}
-              </span>
-            </span>
-            <span
-              className={`text-lg font-semibold ${
-                deck.legality.legal ? "text-ok" : "text-bad"
-              }`}
-            >
-              {deck.legality.legal ? "Legal" : "Not legal yet"}
-            </span>
-          </div>
-
-          <ProgressBar percent={ownedPercent} className="mt-3" />
-          <p className="mt-3 text-sm text-muted">
-            {ownedCopies} of {deck.legality.cardCount} cards available from your
-            collection
-            {neededCopies > 0 ? (
-              <>
-                {" — "}
-                <strong className="font-normal text-foreground">
-                  {neededCopies} still to buy
-                </strong>
-              </>
-            ) : deck.legality.cardCount > 0 ? (
-              " — you own the whole deck"
-            ) : (
-              ""
-            )}
-            .
-          </p>
-
-          {errors.length > 0 ? (
-            <ul className="mt-4 space-y-2">
-              {errors.map((problem) => (
-                <li key={problem.code + problem.message} className="text-sm">
-                  <span className="text-bad">✗</span> {problem.message}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          {warnings.length > 0 ? (
-            <ul className="mt-4 space-y-2">
-              {warnings.map((problem) => (
-                <li
-                  key={problem.code + problem.message}
-                  className="text-sm text-muted"
-                >
-                  <span>!</span> {problem.message}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </section>
+        {/* ---- the verdict ----------------------------------------------- */}
+        {/*
+          One panel or the other, never both. The two formats are judged by
+          different things — Commander by rules it can break, a cube by a
+          target its owner set — so the page asks the deck which it is rather
+          than rendering a Commander verdict with the inapplicable checks
+          quietly suppressed.
+        */}
+        {deck.verdict.kind === "commander" ? (
+          <CommanderVerdict
+            report={deck.verdict.report}
+            ownedCopies={ownedCopies}
+            neededCopies={neededCopies}
+          />
+        ) : (
+          <CubeReportPanel
+            report={deck.verdict.report}
+            ownedCopies={ownedCopies}
+          >
+            <CubeSizeForm deckId={deck.id} targetSize={deck.targetSize} />
+          </CubeReportPanel>
+        )}
 
         {/* ---- buy list -------------------------------------------------- */}
         {deck.missing.length > 0 ? (
@@ -194,7 +152,7 @@ export default async function DeckPage({
             locationId={deck.locationId}
             locations={locations.map((l) => ({ id: l.id, name: l.name }))}
             allocatedCount={allocatedCount}
-            cardCount={deck.legality.cardCount}
+            cardCount={deck.cardCount}
           />
         </div>
 
@@ -215,7 +173,13 @@ export default async function DeckPage({
         <div className="mt-6">
           <DeckCardSearch
             deckId={deck.id}
+            format={deck.format}
             defaultBoard={
+              // A cube has no command zone, so every card goes to the list.
+              // A Commander deck starts on the commander, because an empty
+              // deck's first card is one and the colour-identity check has
+              // nothing to work from until it is there.
+              deck.format === "cube" ||
               deck.cards.some((c) => c.board === "commander")
                 ? "main"
                 : "commander"
@@ -232,14 +196,30 @@ export default async function DeckPage({
               board={board}
               cards={cards}
               deckId={deck.id}
+              format={deck.format}
             />
           );
         })}
 
         {deck.cards.length === 0 ? (
           <p className="mt-8 rounded-lg border border-border bg-surface p-5 text-sm text-muted">
-            Empty deck. Add a commander first — the search above starts on the
-            command zone, and the colour-identity check works from it.
+            {deck.format === "cube" ? (
+              <>
+                Empty cube. Add cards above one at a time, or{" "}
+                <Link
+                  href="/import"
+                  className="underline underline-offset-4 hover:text-foreground"
+                >
+                  paste the whole list
+                </Link>{" "}
+                — {deck.targetSize} names is a paste, not an afternoon.
+              </>
+            ) : (
+              <>
+                Empty deck. Add a commander first — the search above starts on
+                the command zone, and the colour-identity check works from it.
+              </>
+            )}
           </p>
         ) : null}
       </main>
@@ -251,17 +231,19 @@ function BoardSection({
   board,
   cards,
   deckId,
+  format,
 }: {
   board: DeckBoard;
   cards: DeckCardRow[];
   deckId: string;
+  format: DeckFormat;
 }) {
   const copies = cards.reduce((n, c) => n + c.quantity, 0);
 
   return (
     <section className="mt-8">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-        {DECK_BOARD_LABELS[board]} ({copies})
+        {boardLabel(format, board)} ({copies})
         {board === "maybe" ? (
           <span className="ml-2 font-normal normal-case">
             — counts toward nothing
@@ -300,7 +282,10 @@ function BoardSection({
                     {card.isAllocated ? (
                       <span className="ml-2 text-xs text-muted">claimed</span>
                     ) : null}
-                    {card.commanderLegality !== "legal" ? (
+                    {/* A cube has no ban list, so the badge would be a
+                        verdict nobody asked for. */}
+                    {format === "commander" &&
+                    card.commanderLegality !== "legal" ? (
                       <span className="ml-2 text-xs text-bad">
                         {card.commanderLegality === "banned"
                           ? "banned"
@@ -329,6 +314,7 @@ function BoardSection({
                     <DeckCardControls
                       deckCardId={card.id}
                       deckId={deckId}
+                      format={format}
                       board={card.board}
                       quantity={card.quantity}
                     />
@@ -339,6 +325,94 @@ function BoardSection({
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+/**
+ * The Commander verdict: size, what you own of it, and every rule it breaks.
+ *
+ * Errors and warnings are separated rather than sorted together, because
+ * they mean different things to act on — an error is "this deck is not
+ * legal", a warning is "check this before you play it" (see
+ * lib/decks/legality.ts on unverifiable commander pairs).
+ */
+function CommanderVerdict({
+  report,
+  ownedCopies,
+  neededCopies,
+}: {
+  report: LegalityReport;
+  ownedCopies: number;
+  neededCopies: number;
+}) {
+  const ownedPercent =
+    report.cardCount === 0
+      ? 0
+      : Math.min(Math.round((ownedCopies / report.cardCount) * 100), 100);
+
+  const errors = report.problems.filter((p) => p.severity === "error");
+  const warnings = report.problems.filter((p) => p.severity === "warning");
+
+  return (
+    <section className="mt-6 rounded-lg border border-border bg-surface p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <span className="text-3xl font-semibold tabular-nums">
+          {report.cardCount}
+          <span className="text-xl text-muted">
+            {" / "}
+            {COMMANDER_DECK_SIZE}
+          </span>
+        </span>
+        <span
+          className={`text-lg font-semibold ${
+            report.legal ? "text-ok" : "text-bad"
+          }`}
+        >
+          {report.legal ? "Legal" : "Not legal yet"}
+        </span>
+      </div>
+
+      <ProgressBar percent={ownedPercent} className="mt-3" />
+      <p className="mt-3 text-sm text-muted">
+        {ownedCopies} of {report.cardCount} cards available from your collection
+        {neededCopies > 0 ? (
+          <>
+            {" — "}
+            <strong className="font-normal text-foreground">
+              {neededCopies} still to buy
+            </strong>
+          </>
+        ) : report.cardCount > 0 ? (
+          " — you own the whole deck"
+        ) : (
+          ""
+        )}
+        .
+      </p>
+
+      {errors.length > 0 ? (
+        <ul className="mt-4 space-y-2">
+          {errors.map((problem) => (
+            <li key={problem.code + problem.message} className="text-sm">
+              <span className="text-bad">✗</span> {problem.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {warnings.length > 0 ? (
+        <ul className="mt-4 space-y-2">
+          {warnings.map((problem) => (
+            <li
+              key={problem.code + problem.message}
+              className="text-sm text-muted"
+            >
+              <span>!</span> {problem.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }

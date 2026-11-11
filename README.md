@@ -1,18 +1,19 @@
 # MagicTracker
 
 Personal Magic: The Gathering collection tracker — collection entry, set
-completion, sealed product adds, Commander decks, pasted-list import, weekly
-value tracking, and shareable decklists. Built to run on free tiers
+completion, sealed product adds, Commander decks, cubes, pasted-list import,
+weekly value tracking, and shareable decklists. Built to run on free tiers
 indefinitely, with no subscription.
 
 See [PLAN.md](./PLAN.md) for the architecture, data model, and phase plan,
 including why the stack is what it is.
 
-**Current state: all eight phases complete.** Card search, collection entry
-with locations, per-set completion, precon adds, Commander decks with a
-legality engine and buy list, paste import, the weekly price snapshot with
-its value page, a home-screen icon, exports with a weekly backup, and
-unlisted deck share links.
+**Current state: all eight phases complete, plus cubes.** Card search,
+collection entry with locations, per-set completion, precon adds, Commander
+decks with a legality engine and buy list, cubes with a size target and a
+colour/curve/type breakdown, paste import, the weekly price snapshot with its
+value page, a home-screen icon, exports with a weekly backup, and unlisted
+deck share links.
 
 ---
 
@@ -238,6 +239,7 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run import:smoke` | End-to-end check of paste import against the real database |
 | `npm run prices:smoke` | End-to-end check of the price layer against the real database and Scryfall |
 | `npm run polish:smoke` | End-to-end check of share links and the export against the real database |
+| `npm run cube:smoke` | End-to-end check of cube decks against the real database |
 | `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
 
 ## The collection
@@ -402,9 +404,8 @@ Sol Ring that was in the box before the add is still there afterwards.
 
 ## Decks
 
-`/decks` builds Commander decks and tells you what is left to buy. Only
-Commander is validated — "I mostly play Commander and sealed", and sealed has
-no decklist.
+`/decks` builds Commander decks and cubes and tells you what is left to buy.
+Sealed is still not a format here — a sealed pool is not a list you curate.
 
 **The command zone is a board, not a column.** PLAN.md §5 sketched
 `decks.commander_printing_id`, but Commander legally allows two commanders
@@ -450,6 +451,38 @@ banned, not-legal, colour identity, an ineligible commander — is an error.
 Nothing stops you *storing* an illegal deck. A deck mid-edit is illegal almost
 all of the time, so the rules engine reports rather than refuses; the legality
 panel is the verdict and the tables are just storage.
+
+### Cubes
+
+A cube is a deck with `format = 'cube'`: same tables, same ownership and
+allocation, a different report. Pick the format when you create the deck, or
+when you paste a list into a new one — a 360-card cube arrives as a paste far
+more often than it is typed.
+
+**A cube is not judged, it is described.** There is no ban list, nothing to
+stay inside, and no size the rules impose, so `lib/decks/cube.ts` reports
+rather than rules: the size against *your* target, and the colour, mana-curve
+and card-type spread — the three distributions a cube owner actually reads.
+`getDeck` returns a tagged verdict (`{ kind: "commander" | "cube", report }`)
+so a template cannot reach for a Commander verdict on something that has
+none, and so the inapplicable Commander checks are *absent* rather than
+suppressed.
+
+| | |
+|---|---|
+| Size | Yours. `decks.target_size`, defaulting to 360; Commander stores null, because 100 is the rule and a row that disagreed with it would be a bug waiting |
+| Why 360 | 8 drafters × 3 packs × 15 cards. The page says what your size seats, and says nothing when it does not divide |
+| Duplicates | A **warning**, never an error. Singleton is convention, not law, and basics and "any number of cards named ~" are exempt by the same function the Commander check uses |
+| The command zone | A cube has none. Cards left in one still count, and the report asks you to move them rather than hiding a row you would never find |
+| Colours | Bucketed by the card's own `colors`, not its colour identity — a cube's balance is about what you cast with which mana, so Bloodghast is black, not black-red |
+| Curve | Lands excluded, 7+ collected, percentages of the nonland cards |
+| Format changes | Not offered. The two formats mean different things about every card in the list, so switching one would silently reinterpret the whole deck |
+
+**The bars are one hue, not five.** WUBRG as swatches is the obvious idea and
+the wrong one: yellow-white and black marks fail the contrast and lightness
+checks against both themes' surfaces. Each distribution is one series in
+`--chart-line` — the token the value chart uses, the project's only
+validator-passing mark colour — with the label carrying the identity.
 
 ## Importing a pasted list
 
@@ -579,6 +612,11 @@ The card tables are **not** in it. They rebuild from Scryfall in about 35
 seconds, and including 110k printings would turn a file you can read into one
 you cannot.
 
+`formatVersion` is **2** since cubes: `decks[].targetSize` was added, and a
+cube restored from a version-1 file would come back without the size it was
+built to. Nothing was removed, so a reader that only knows version 1 still
+reads everything it knew.
+
 The same export runs as the last step of the weekly job
 (`scripts/export-backup.ts`) and is gzipped to a bucket:
 
@@ -601,7 +639,7 @@ unguessable, the page is `noindex`, and nothing links to it.
 | The visitor sees | The visitor never sees |
 |---|---|
 | Card names, counts, boards, mana costs, pinned printings | What you own, or what is still to buy |
-| Colour identity and the legality verdict | What the deck or the cards are worth |
+| Colour identity and the legality verdict, or a cube's size and spread | What the deck or the cards are worth |
 | When the deck was last changed | The deck's notes, or where it is kept |
 
 Turning a link off is one UPDATE and takes effect immediately; **Replace it**

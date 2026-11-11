@@ -19,7 +19,12 @@ import { getDb } from "@/lib/db";
  * had UUIDs in it would be a backup of a database, not of a collection.
  */
 
-export const EXPORT_FORMAT_VERSION = 1;
+/**
+ * 2 since cubes: `decks[].targetSize` was added, and a cube that came back
+ * from a version-1 file would be restored without the size it was built to.
+ * A reader that only knows version 1 can still read everything it knew.
+ */
+export const EXPORT_FORMAT_VERSION = 2;
 
 export type ExportLocation = {
   id: string;
@@ -57,6 +62,8 @@ export type ExportDeck = {
   id: string;
   name: string;
   format: string;
+  /** The cube's intended size. Null for Commander, which is always 100. */
+  targetSize: number | null;
   notes: string | null;
   location: string | null;
   /** Whether a share link is live. The token itself is never exported. */
@@ -141,12 +148,13 @@ export async function buildExport(): Promise<CollectionExport> {
     id: string;
     name: string;
     format: string;
+    target_size: number | null;
     notes: string | null;
     location: string | null;
     shared: boolean;
     updated_at: string;
   }>(sql`
-    SELECT d.id::text AS id, d.name, d.format, d.notes,
+    SELECT d.id::text AS id, d.name, d.format, d.target_size, d.notes,
            l.name AS location,
            (d.share_token IS NOT NULL) AS shared,
            d.updated_at::text AS updated_at
@@ -218,6 +226,7 @@ export async function buildExport(): Promise<CollectionExport> {
     id: d.id,
     name: d.name,
     format: d.format,
+    targetSize: d.target_size,
     notes: d.notes,
     location: d.location,
     shared: d.shared,

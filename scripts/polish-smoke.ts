@@ -155,9 +155,11 @@ async function main() {
     });
 
     check("the verdict travels with the list", () => {
-      assert.equal(shared.legality.cardCount, 2);
-      assert.equal(shared.legality.legal, false); // two cards is not 100
-      assert.ok(shared.legality.colorIdentity.length >= 0);
+      assert.equal(shared.verdict.kind, "commander");
+      if (shared.verdict.kind !== "commander") return;
+      assert.equal(shared.verdict.report.cardCount, 2);
+      assert.equal(shared.verdict.report.legal, false); // two cards is not 100
+      assert.ok(shared.verdict.report.colorIdentity.length >= 0);
     });
 
     const serialised = JSON.stringify(shared);

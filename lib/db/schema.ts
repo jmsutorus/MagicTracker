@@ -15,6 +15,11 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+// Imported, not just re-exported below: `decks_target_size_check` is written
+// from it, so the bound in the database and the bound the forms enforce are
+// the same number.
+import { MAX_CUBE_SIZE } from "@/lib/decks/constants";
+
 /**
  * MACHINE-OWNED TABLES (sets / oracle_cards / printings)
  *
@@ -336,7 +341,10 @@ export {
   DECK_BOARDS,
   DECK_BOARD_LABELS,
   DECK_FORMATS,
+  DECK_FORMAT_LABELS,
+  DEFAULT_CUBE_SIZE,
   MAX_COMMANDERS,
+  MAX_CUBE_SIZE,
 } from "@/lib/decks/constants";
 export type { DeckBoard, DeckFormat } from "@/lib/decks/constants";
 
@@ -683,8 +691,20 @@ export const decks = pgTable(
 
     name: text("name").notNull(),
 
-    /** Only `commander` today; see lib/decks/constants.ts. */
+    /** `commander` or `cube`; see lib/decks/constants.ts. */
     format: text("format").notNull().default("commander"),
+
+    /**
+     * How many cards the list is meant to hold, for formats where that is
+     * the owner's choice rather than a rule.
+     *
+     * Null for Commander, which is always 100 — storing 100 in every row
+     * would invite a deck that disagrees with the format's own rule.
+     * Null for a cube too until one is chosen, which reads as the default
+     * (360) rather than as "no target": a cube with no size is not a thing,
+     * but a cube you have not thought about the size of is.
+     */
+    targetSize: integer("target_size"),
 
     notes: text("notes"),
 
@@ -735,7 +755,18 @@ export const decks = pgTable(
     uniqueIndex("decks_share_token_key")
       .on(table.shareToken)
       .where(sql`${table.shareToken} IS NOT NULL`),
-    check("decks_format_check", sql`${table.format} IN ('commander')`),
+    check("decks_format_check", sql`${table.format} IN ('commander', 'cube')`),
+    /*
+     * Bounded, not just positive. The column is the owner's own number, and
+     * it arrives from a form — a stray keypress asking for a 36,000-card
+     * cube would otherwise be stored and then divided by, everywhere.
+     */
+    check(
+      "decks_target_size_check",
+      // sql.raw, because an interpolated number becomes a bound parameter
+      // and a CHECK cannot hold one: drizzle-kit would emit `<= $1`.
+      sql`${table.targetSize} IS NULL OR (${table.targetSize} > 0 AND ${table.targetSize} <= ${sql.raw(String(MAX_CUBE_SIZE))})`,
+    ),
   ],
 );
 

@@ -4,9 +4,14 @@ import { getDb } from "@/lib/db";
 
 import {
   DECK_BOARDS,
+  DEFAULT_CUBE_SIZE,
+  MAX_CUBE_SIZE,
   MAX_DECK_CARD_QUANTITY,
   MAX_DECK_NAME_LENGTH,
+  MIN_CUBE_SIZE,
+  isDeckFormat,
   type DeckBoard,
+  type DeckFormat,
 } from "./constants";
 
 /**
@@ -48,19 +53,73 @@ function touch(deckId: string) {
   return sql`UPDATE decks SET updated_at = now() WHERE id = ${deckId}::uuid`;
 }
 
+/**
+ * What a new deck can be told about itself.
+ *
+ * An options object rather than more positional parameters: `format` and
+ * `targetSize` only ever travel together, and the next caller to pass
+ * `createDeck(name, 360)` by mistake would have written a deck whose notes
+ * are the number 360.
+ */
+export type NewDeckOptions = {
+  notes?: string | null;
+  format?: string | null;
+  /** Cube only; ignored for Commander, which is always 100. */
+  targetSize?: number | null;
+};
+
+/**
+ * Checks a format and its size together, because the pair is what has to
+ * make sense: a stored size on a Commander deck is a contradiction, not a
+ * preference, so it is dropped rather than saved and then ignored.
+ */
+export function checkDeckShape(
+  options: NewDeckOptions,
+):
+  | { ok: true; format: DeckFormat; targetSize: number | null }
+  | { ok: false; error: string } {
+  const raw = options.format ?? "commander";
+  if (!isDeckFormat(raw)) {
+    return { ok: false, error: `Unknown deck format "${String(raw)}".` };
+  }
+
+  if (raw !== "cube") return { ok: true, format: raw, targetSize: null };
+
+  const size =
+    options.targetSize === null || options.targetSize === undefined
+      ? DEFAULT_CUBE_SIZE
+      : Math.trunc(options.targetSize);
+
+  if (!Number.isSafeInteger(size) || size < MIN_CUBE_SIZE) {
+    return { ok: false, error: "A cube needs at least one card." };
+  }
+  if (size > MAX_CUBE_SIZE) {
+    return {
+      ok: false,
+      error: `A cube cannot be larger than ${MAX_CUBE_SIZE.toLocaleString()} cards.`,
+    };
+  }
+
+  return { ok: true, format: raw, targetSize: size };
+}
+
 export async function createDeck(
   name: string,
-  notes?: string | null,
+  options: NewDeckOptions = {},
 ): Promise<DeckCreated> {
   const trimmed = cleanDeckName(name);
   const nameError = checkDeckName(trimmed);
   if (nameError) return { ok: false, error: nameError };
 
+  const shape = checkDeckShape(options);
+  if (!shape.ok) return { ok: false, error: shape.error };
+
   const db = getDb();
   try {
     const { rows } = await db.execute<{ id: string; name: string }>(sql`
-      INSERT INTO decks (name, notes)
-      VALUES (${trimmed}, ${notes ?? null})
+      INSERT INTO decks (name, notes, format, target_size)
+      VALUES (${trimmed}, ${options.notes ?? null}, ${shape.format},
+              ${shape.targetSize})
       RETURNING id::text AS id, name
     `);
     const row = rows[0];
@@ -185,6 +244,43 @@ export async function setDeckLocation(
       ok: false,
       error: describeDbError(error, "set the deck's location"),
     };
+  }
+}
+
+/**
+ * Changes a cube's intended size.
+ *
+ * Only a cube has one. Asking to resize a Commander deck is refused rather
+ * than ignored: 100 is the rule, and a silent no-op would leave a form that
+ * looks like it worked.
+ */
+export async function setDeckTargetSize(
+  deckId: string,
+  targetSize: number,
+): Promise<DeckResult> {
+  if (!UUID_RE.test(deckId)) return { ok: false, error: "Unknown deck." };
+
+  const shape = checkDeckShape({ format: "cube", targetSize });
+  if (!shape.ok) return { ok: false, error: shape.error };
+
+  const db = getDb();
+  try {
+    const { rows } = await db.execute<{ id: string }>(sql`
+      UPDATE decks
+         SET target_size = ${shape.targetSize}, updated_at = now()
+       WHERE id = ${deckId}::uuid
+         AND format = 'cube'
+      RETURNING id::text AS id
+    `);
+    if (rows.length === 0) {
+      return {
+        ok: false,
+        error: "That deck no longer exists, or is not a cube.",
+      };
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: describeDbError(error, "set the cube's size") };
   }
 }
 

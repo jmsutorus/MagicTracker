@@ -24,6 +24,7 @@
     "decks:smoke": "tsx scripts/decks-smoke.ts",
     "import:smoke": "tsx scripts/import-smoke.ts",
     "prices:smoke": "tsx scripts/prices-smoke.ts",
+    "cube:smoke": "tsx scripts/cube-smoke.ts",
     "polish:smoke": "tsx scripts/polish-smoke.ts"
   },
   "dependencies": {

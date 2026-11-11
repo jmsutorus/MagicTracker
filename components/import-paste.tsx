@@ -8,6 +8,16 @@ import { applyImportAction, reviewPasteAction } from "@/app/import/actions";
 import type { ReviewResult } from "@/app/import/actions";
 import { CARD_CONDITIONS, CARD_FINISHES } from "@/lib/collection/constants";
 import {
+  CUBE_SIZE_CHOICES,
+  DECK_FORMATS,
+  DECK_FORMAT_LABELS,
+  DEFAULT_CUBE_SIZE,
+  MAX_CUBE_SIZE,
+  MIN_CUBE_SIZE,
+  draftersFor,
+  type DeckFormat,
+} from "@/lib/decks/constants";
+import {
   IMPORT_SECTIONS,
   IMPORT_SECTION_LABELS,
   sectionToBoard,
@@ -17,6 +27,9 @@ import {
 import { formatCardList } from "@/lib/import/parse";
 import type { CardOption, ResolvedLine } from "@/lib/import/resolve";
 import { summarizeWanted } from "@/lib/import/summary";
+
+/** The size select's escape hatch, when a cube is not a listed size. */
+const CUBE_SIZE_OTHER = "other";
 
 /**
  * The card a line will import as: the user's pick, or the server's match.
@@ -93,6 +106,25 @@ export function ImportPaste({
   const [locationId, setLocationId] = useState(defaultLocationId ?? "");
   const [deckId, setDeckId] = useState("");
   const [newDeckName, setNewDeckName] = useState("");
+  /*
+   * A new deck's format, chosen here rather than afterwards. A pasted cube
+   * is the common case for a 360-line list, and creating it as a Commander
+   * deck would hold it to rules it was never meant to pass — then there is
+   * no way to change it, by design (see components/deck-create-form.tsx).
+   */
+  const [newDeckFormat, setNewDeckFormat] = useState<DeckFormat>("commander");
+  const [newCubeSize, setNewCubeSize] = useState(String(DEFAULT_CUBE_SIZE));
+  const [newCubeCustom, setNewCubeCustom] = useState(String(DEFAULT_CUBE_SIZE));
+
+  const wantedCubeSize =
+    newCubeSize === CUBE_SIZE_OTHER
+      ? Number.parseInt(newCubeCustom, 10)
+      : Number(newCubeSize);
+  const cubeSizeValid =
+    newDeckFormat !== "cube" ||
+    (Number.isSafeInteger(wantedCubeSize) &&
+      wantedCubeSize >= MIN_CUBE_SIZE &&
+      wantedCubeSize <= MAX_CUBE_SIZE);
   const [defaultFinish, setDefaultFinish] = useState("nonfoil");
   const [defaultCondition, setDefaultCondition] = useState("NM");
 
@@ -182,7 +214,12 @@ export function ImportPaste({
             defaultCondition,
           }
         : deckId === "new"
-          ? { kind: "new-deck", name: newDeckName }
+          ? {
+              kind: "new-deck",
+              name: newDeckName,
+              format: newDeckFormat,
+              targetSize: newDeckFormat === "cube" ? wantedCubeSize : null,
+            }
           : { kind: "deck", deckId },
     );
 
@@ -224,7 +261,7 @@ export function ImportPaste({
     (target === "collection"
       ? locationId.length > 0
       : deckId === "new"
-        ? newDeckName.trim().length > 0
+        ? newDeckName.trim().length > 0 && cubeSizeValid
         : deckId.length > 0);
 
   return (
@@ -518,15 +555,80 @@ export function ImportPaste({
                 </label>
 
                 {deckId === "new" ? (
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs text-muted">Called</span>
-                    <input
-                      value={newDeckName}
-                      onChange={(e) => setNewDeckName(e.target.value)}
-                      placeholder="Zinnia, Valley's Voice…"
-                      className="w-64 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
-                    />
-                  </label>
+                  <>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-muted">Called</span>
+                      <input
+                        value={newDeckName}
+                        onChange={(e) => setNewDeckName(e.target.value)}
+                        placeholder={
+                          newDeckFormat === "cube"
+                            ? "Vintage cube…"
+                            : "Zinnia, Valley's Voice…"
+                        }
+                        className="w-64 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-muted">As a</span>
+                      <select
+                        value={newDeckFormat}
+                        onChange={(e) =>
+                          setNewDeckFormat(e.target.value as DeckFormat)
+                        }
+                        className="rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+                      >
+                        {DECK_FORMATS.map((option) => (
+                          <option key={option} value={option}>
+                            {DECK_FORMAT_LABELS[option]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {newDeckFormat === "cube" ? (
+                      <>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-xs text-muted">Size</span>
+                          <select
+                            value={newCubeSize}
+                            onChange={(e) => setNewCubeSize(e.target.value)}
+                            className="rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+                          >
+                            {CUBE_SIZE_CHOICES.map((size) => {
+                              const drafters = draftersFor(size);
+                              return (
+                                <option key={size} value={String(size)}>
+                                  {drafters === null
+                                    ? `${size}`
+                                    : `${size} — ${drafters} drafters`}
+                                </option>
+                              );
+                            })}
+                            <option value={CUBE_SIZE_OTHER}>
+                              Another size…
+                            </option>
+                          </select>
+                        </label>
+
+                        {newCubeSize === CUBE_SIZE_OTHER ? (
+                          <label className="flex flex-col gap-1">
+                            <span className="text-xs text-muted">Cards</span>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min={MIN_CUBE_SIZE}
+                              max={MAX_CUBE_SIZE}
+                              value={newCubeCustom}
+                              onChange={(e) => setNewCubeCustom(e.target.value)}
+                              className="w-24 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
+                            />
+                          </label>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </>
                 ) : null}
               </div>
             ) : null}

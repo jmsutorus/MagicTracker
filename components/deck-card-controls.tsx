@@ -9,9 +9,10 @@ import {
   setDeckCardBoardAction,
 } from "@/app/decks/actions";
 import {
-  DECK_BOARDS,
-  DECK_BOARD_LABELS,
+  boardLabel,
+  boardsFor,
   type DeckBoard,
+  type DeckFormat,
 } from "@/lib/decks/constants";
 
 /**
@@ -25,14 +26,26 @@ import {
 export function DeckCardControls({
   deckCardId,
   deckId,
+  format,
   board,
   quantity,
 }: {
   deckCardId: string;
   deckId: string;
+  /** Decides which boards exist: a cube has no command zone. */
+  format: DeckFormat;
   board: DeckBoard;
   quantity: number;
 }) {
+  /*
+   * The card's current board is always an option, even when the format does
+   * not offer it. A cube with a card left in the command zone needs to be
+   * able to move it out, and a select whose value matches none of its
+   * options renders as blank — so the way out would be the control that
+   * looks broken.
+   */
+  const boards = boardsFor(format);
+  const options = boards.includes(board) ? boards : [board, ...boards];
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
@@ -87,9 +100,9 @@ export function DeckCardControls({
         }
         className="ml-1 rounded border border-border bg-surface px-1 py-0.5 text-xs outline-none focus:border-accent"
       >
-        {DECK_BOARDS.map((b) => (
+        {options.map((b) => (
           <option key={b} value={b}>
-            {DECK_BOARD_LABELS[b]}
+            {boardLabel(format, b)}
           </option>
         ))}
       </select>

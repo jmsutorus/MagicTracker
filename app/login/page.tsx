@@ -34,7 +34,7 @@ export default async function LoginPage({
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-semibold tracking-tight">MagicTracker</h1>
         <p className="mt-2 text-sm text-muted">
-          Personal collection, set completion, and Commander decks.
+          Personal collection, set completion, Commander decks and cubes.
         </p>
 
         {message ? (

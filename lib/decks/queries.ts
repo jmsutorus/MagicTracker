@@ -2,7 +2,14 @@ import { sql, type SQL } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 
-import { COUNTED_BOARDS, type DeckBoard } from "./constants";
+import {
+  COUNTED_BOARDS,
+  isDeckFormat,
+  targetSizeFor,
+  type DeckBoard,
+  type DeckFormat,
+} from "./constants";
+import { checkCube, type CubeCard, type CubeReport } from "./cube";
 import {
   checkCommanderDeck,
   type LegalityCard,
@@ -54,7 +61,9 @@ function availableFragment(excludeDeckId: SQL | null): SQL {
 export type DeckListRow = {
   id: string;
   name: string;
-  format: string;
+  format: DeckFormat;
+  /** What the list is measured against: 100, or the cube's own size. */
+  targetSize: number;
   locationId: string | null;
   locationName: string | null;
   /** Cards on the counted boards, commanders included. */
@@ -75,6 +84,7 @@ export async function listDecks(): Promise<DeckListRow[]> {
     id: string;
     name: string;
     format: string;
+    target_size: number | null;
     location_id: string | null;
     location_name: string | null;
     card_count: number;
@@ -99,6 +109,7 @@ export async function listDecks(): Promise<DeckListRow[]> {
     SELECT d.id::text AS id,
            d.name,
            d.format,
+           d.target_size,
            d.location_id::text AS location_id,
            l.name AS location_name,
            d.updated_at::text AS updated_at,
@@ -130,19 +141,36 @@ export async function listDecks(): Promise<DeckListRow[]> {
      ORDER BY d.updated_at DESC
   `);
 
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    format: r.format,
-    locationId: r.location_id,
-    locationName: r.location_name,
-    cardCount: r.card_count,
-    commanderNames: r.commander_names ?? [],
-    colorIdentity: r.color_identity ?? [],
-    ownedCopies: r.owned_copies,
-    allocatedCopies: r.allocated_copies,
-    updatedAt: r.updated_at,
-  }));
+  return rows.map((r) => {
+    const format = deckFormat(r.format);
+    return {
+      id: r.id,
+      name: r.name,
+      format,
+      targetSize: targetSizeFor(format, r.target_size),
+      locationId: r.location_id,
+      locationName: r.location_name,
+      cardCount: r.card_count,
+      commanderNames: r.commander_names ?? [],
+      colorIdentity: r.color_identity ?? [],
+      ownedCopies: r.owned_copies,
+      allocatedCopies: r.allocated_copies,
+      updatedAt: r.updated_at,
+    };
+  });
+}
+
+/**
+ * The format column, as a format.
+ *
+ * `decks.format` is text with a CHECK, so the database already refuses
+ * anything else — but a value read out of a column is still a string as far
+ * as the compiler is concerned, and silently rendering a deck with an
+ * unknown format as a blank page would be worse than treating it as the one
+ * every deck was before cubes existed.
+ */
+function deckFormat(raw: string): DeckFormat {
+  return isDeckFormat(raw) ? raw : "commander";
 }
 
 export type DeckCardRow = {
@@ -167,15 +195,34 @@ export type DeckCardRow = {
   owned: number;
 };
 
+/**
+ * What this deck is judged by, tagged with which judgment it is.
+ *
+ * A union rather than two optional fields, because exactly one applies and
+ * the UI has to render one panel or the other: Commander's verdict is
+ * legal/not legal against a fixed rule set, and a cube's report is a
+ * description of a pool nobody can declare illegal. Running the Commander
+ * rules on a 360-card cube would produce fifteen errors that are all
+ * "a cube is not a Commander deck", and the type is what stops a template
+ * from reaching for `legality` on something that has none.
+ */
+export type DeckVerdict =
+  | { kind: "commander"; report: LegalityReport }
+  | { kind: "cube"; report: CubeReport };
+
 export type DeckDetail = {
   id: string;
   name: string;
-  format: string;
+  format: DeckFormat;
+  /** 100 for Commander, the cube's own size for a cube. */
+  targetSize: number;
   notes: string | null;
   locationId: string | null;
   locationName: string | null;
   cards: DeckCardRow[];
-  legality: LegalityReport;
+  verdict: DeckVerdict;
+  /** Cards on the counted boards, commanders included. */
+  cardCount: number;
   /** Cards the deck needs that are not available. */
   missing: { oracleId: string; name: string; need: number }[];
   updatedAt: string;
@@ -188,12 +235,13 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
     id: string;
     name: string;
     format: string;
+    target_size: number | null;
     notes: string | null;
     location_id: string | null;
     location_name: string | null;
     updated_at: string;
   }>(sql`
-    SELECT d.id::text AS id, d.name, d.format, d.notes,
+    SELECT d.id::text AS id, d.name, d.format, d.target_size, d.notes,
            d.location_id::text AS location_id,
            l.name AS location_name,
            d.updated_at::text AS updated_at
@@ -214,6 +262,7 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
     mana_cost: string | null;
     cmc: number | null;
     color_identity: string[] | null;
+    colors: string[] | null;
     oracle_text: string | null;
     keywords: string[] | null;
     commander_legality: string | null;
@@ -239,6 +288,7 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
            o.mana_cost,
            o.cmc,
            o.color_identity,
+           o.colors,
            o.oracle_text,
            o.keywords,
            o.legalities->>'commander' AS commander_legality,
@@ -282,28 +332,55 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
     owned: r.owned,
   }));
 
-  /*
-   * The maybeboard is filtered out here, not in the rule engine.
-   * checkCommanderDeck counts every row it is given — a card under
-   * consideration is not a card in the deck, and letting one count toward the
-   * 100 or toward color identity would make the verdict wrong in a way the
-   * user never asked for.
-   */
-  const counted: LegalityCard[] = rows
-    .filter((r) => (COUNTED_BOARDS as readonly string[]).includes(r.board))
-    .map((r) => ({
-      oracleId: r.oracle_id,
-      name: r.name,
-      typeLine: r.type_line,
-      oracleText: r.oracle_text,
-      colorIdentity: r.color_identity ?? [],
-      keywords: r.keywords,
-      commanderLegality: r.commander_legality,
-      board: r.board as DeckBoard,
-      quantity: r.quantity,
-    }));
+  const format = deckFormat(deck.format);
+  const targetSize = targetSizeFor(format, deck.target_size);
 
-  const legality = checkCommanderDeck(counted);
+  /*
+   * The maybeboard is filtered out here, not in the rule engine. Both
+   * checkCommanderDeck and checkCube count every row they are given — a card
+   * under consideration is not a card in the deck, and letting one count
+   * toward the size or the colour balance would make the answer wrong in a
+   * way the user never asked for.
+   */
+  const countedRows = rows.filter((r) =>
+    (COUNTED_BOARDS as readonly string[]).includes(r.board),
+  );
+
+  const verdict: DeckVerdict =
+    format === "cube"
+      ? {
+          kind: "cube",
+          report: checkCube(
+            countedRows.map((r): CubeCard => ({
+              oracleId: r.oracle_id,
+              name: r.name,
+              typeLine: r.type_line,
+              oracleText: r.oracle_text,
+              colors: r.colors,
+              colorIdentity: r.color_identity ?? [],
+              cmc: r.cmc,
+              board: r.board as DeckBoard,
+              quantity: r.quantity,
+            })),
+            targetSize,
+          ),
+        }
+      : {
+          kind: "commander",
+          report: checkCommanderDeck(
+            countedRows.map((r): LegalityCard => ({
+              oracleId: r.oracle_id,
+              name: r.name,
+              typeLine: r.type_line,
+              oracleText: r.oracle_text,
+              colorIdentity: r.color_identity ?? [],
+              keywords: r.keywords,
+              commanderLegality: r.commander_legality,
+              board: r.board as DeckBoard,
+              quantity: r.quantity,
+            })),
+          ),
+        };
 
   const missing = cards
     .filter((c) => c.board !== "maybe" && c.available < c.quantity)
@@ -316,12 +393,14 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
   return {
     id: deck.id,
     name: deck.name,
-    format: deck.format,
+    format,
+    targetSize,
     notes: deck.notes,
     locationId: deck.location_id,
     locationName: deck.location_name,
     cards,
-    legality,
+    verdict,
+    cardCount: verdict.report.cardCount,
     missing,
     updatedAt: deck.updated_at,
   };

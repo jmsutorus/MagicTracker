@@ -5,9 +5,10 @@ import { useEffect, useRef, useState, useTransition } from "react";
 
 import { addDeckCardAction } from "@/app/decks/actions";
 import {
-  DECK_BOARDS,
-  DECK_BOARD_LABELS,
+  boardLabel,
+  boardsFor,
   type DeckBoard,
+  type DeckFormat,
 } from "@/lib/decks/constants";
 
 type Candidate = {
@@ -38,11 +39,21 @@ type Candidate = {
  */
 export function DeckCardSearch({
   deckId,
+  format,
   defaultBoard = "main",
 }: {
   deckId: string;
+  format: DeckFormat;
   defaultBoard?: DeckBoard;
 }) {
+  const boards = boardsFor(format);
+  /*
+   * Commander legality and colour identity are facts about a Commander deck,
+   * and both badges would be noise in a cube: a cube has no ban list and
+   * nothing to stay inside, so a Conspiracy or a five-colour card is a
+   * perfectly ordinary thing to put in one.
+   */
+  const commanderRules = format === "commander";
   const router = useRouter();
   const [, startTransition] = useTransition();
 
@@ -111,7 +122,7 @@ export function DeckCardSearch({
       return;
     }
 
-    setAdded(`${candidate.name} → ${DECK_BOARD_LABELS[board]}`);
+    setAdded(`${candidate.name} → ${boardLabel(format, board)}`);
     setQuery("");
     setResults([]);
     inputRef.current?.focus();
@@ -164,9 +175,9 @@ export function DeckCardSearch({
             onChange={(e) => setBoard(e.target.value as DeckBoard)}
             className="w-40 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent"
           >
-            {DECK_BOARDS.map((b) => (
+            {boards.map((b) => (
               <option key={b} value={b}>
-                {DECK_BOARD_LABELS[b]}
+                {boardLabel(format, b)}
               </option>
             ))}
           </select>
@@ -229,7 +240,7 @@ export function DeckCardSearch({
                       : "not owned"}
                 </span>
 
-                {candidate.commanderLegality !== "legal" ? (
+                {commanderRules && candidate.commanderLegality !== "legal" ? (
                   <span className="text-xs text-bad">
                     {candidate.commanderLegality === "banned"
                       ? "banned"
@@ -237,7 +248,7 @@ export function DeckCardSearch({
                   </span>
                 ) : null}
 
-                {!candidate.inIdentity ? (
+                {commanderRules && !candidate.inIdentity ? (
                   <span className="text-xs text-bad">off-colour</span>
                 ) : null}
               </button>

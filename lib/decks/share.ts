@@ -4,13 +4,17 @@ import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
 
-import { COUNTED_BOARDS, type DeckBoard } from "./constants";
 import {
-  checkCommanderDeck,
-  type LegalityCard,
-  type LegalityReport,
-} from "./legality";
+  COUNTED_BOARDS,
+  isDeckFormat,
+  targetSizeFor,
+  type DeckBoard,
+  type DeckFormat,
+} from "./constants";
+import { checkCube, type CubeCard } from "./cube";
+import { checkCommanderDeck, type LegalityCard } from "./legality";
 import type { DeckError, DeckResult } from "./mutations";
+import type { DeckVerdict } from "./queries";
 
 /**
  * Unlisted share links.
@@ -140,10 +144,17 @@ export type SharedCard = {
 
 export type SharedDeck = {
   name: string;
-  format: string;
+  format: DeckFormat;
+  /** 100, or the cube's own size. */
+  targetSize: number;
   updatedAt: string;
   sharedAt: string | null;
-  legality: LegalityReport;
+  /**
+   * The same tagged verdict the owner sees, and deliberately so: the list,
+   * its size and whether it holds together are facts about the deck. What
+   * the owner *owns* is not in here at all — see `SharedCard`.
+   */
+  verdict: DeckVerdict;
   boards: { board: DeckBoard; cards: SharedCard[] }[];
 };
 
@@ -164,10 +175,11 @@ export async function getSharedDeck(token: string): Promise<SharedDeck | null> {
     id: string;
     name: string;
     format: string;
+    target_size: number | null;
     updated_at: string;
     share_created_at: string | null;
   }>(sql`
-    SELECT id::text AS id, name, format,
+    SELECT id::text AS id, name, format, target_size,
            updated_at::text AS updated_at,
            share_created_at::text AS share_created_at
       FROM decks
@@ -185,6 +197,8 @@ export async function getSharedDeck(token: string): Promise<SharedDeck | null> {
     mana_cost: string | null;
     oracle_text: string | null;
     color_identity: string[] | null;
+    colors: string[] | null;
+    cmc: number | null;
     keywords: string[] | null;
     commander_legality: string | null;
     quantity: number;
@@ -198,6 +212,8 @@ export async function getSharedDeck(token: string): Promise<SharedDeck | null> {
            o.mana_cost,
            o.oracle_text,
            o.color_identity,
+           o.colors,
+           o.cmc,
            o.keywords,
            o.legalities->>'commander' AS commander_legality,
            dc.quantity,
@@ -214,21 +230,52 @@ export async function getSharedDeck(token: string): Promise<SharedDeck | null> {
               o.name
   `);
 
+  const format: DeckFormat = isDeckFormat(deck.format)
+    ? deck.format
+    : "commander";
+  const targetSize = targetSizeFor(format, deck.target_size);
+
   // The same filter the owner's page applies: the maybeboard counts toward
   // nothing, so it cannot drag the verdict down for a visitor either.
-  const counted: LegalityCard[] = rows
-    .filter((r) => (COUNTED_BOARDS as readonly string[]).includes(r.board))
-    .map((r) => ({
-      oracleId: r.oracle_id,
-      name: r.name,
-      typeLine: r.type_line,
-      oracleText: r.oracle_text,
-      colorIdentity: r.color_identity ?? [],
-      keywords: r.keywords,
-      commanderLegality: r.commander_legality,
-      board: r.board as DeckBoard,
-      quantity: r.quantity,
-    }));
+  const countedRows = rows.filter((r) =>
+    (COUNTED_BOARDS as readonly string[]).includes(r.board),
+  );
+
+  const verdict: DeckVerdict =
+    format === "cube"
+      ? {
+          kind: "cube",
+          report: checkCube(
+            countedRows.map((r): CubeCard => ({
+              oracleId: r.oracle_id,
+              name: r.name,
+              typeLine: r.type_line,
+              oracleText: r.oracle_text,
+              colors: r.colors,
+              colorIdentity: r.color_identity ?? [],
+              cmc: r.cmc,
+              board: r.board as DeckBoard,
+              quantity: r.quantity,
+            })),
+            targetSize,
+          ),
+        }
+      : {
+          kind: "commander",
+          report: checkCommanderDeck(
+            countedRows.map((r): LegalityCard => ({
+              oracleId: r.oracle_id,
+              name: r.name,
+              typeLine: r.type_line,
+              oracleText: r.oracle_text,
+              colorIdentity: r.color_identity ?? [],
+              keywords: r.keywords,
+              commanderLegality: r.commander_legality,
+              board: r.board as DeckBoard,
+              quantity: r.quantity,
+            })),
+          ),
+        };
 
   const boards = (["commander", "main", "maybe"] as const)
     .map((board) => ({
@@ -249,10 +296,11 @@ export async function getSharedDeck(token: string): Promise<SharedDeck | null> {
 
   return {
     name: deck.name,
-    format: deck.format,
+    format,
+    targetSize,
     updatedAt: deck.updated_at,
     sharedAt: deck.share_created_at,
-    legality: checkCommanderDeck(counted),
+    verdict,
     boards,
   };
 }

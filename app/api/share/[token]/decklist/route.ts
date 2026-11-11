@@ -25,6 +25,9 @@ export async function GET(
       return NextResponse.json({ error: "unknown link" }, { status: 404 });
     }
 
+    // The headings are the ones the paste box reads back (see
+    // lib/import/constants.ts), so a downloaded list imports as the sections
+    // it left as — a cube's own labels would not round-trip.
     const sections = deck.boards.map(({ board, cards }) => {
       const heading =
         board === "commander"
@@ -37,7 +40,7 @@ export async function GET(
 
     const body = [
       `// ${deck.name}`,
-      `// ${deck.legality.cardCount} cards, shared from MagicTracker`,
+      `// ${deck.verdict.report.cardCount} cards, shared from MagicTracker`,
       "",
       sections.join("\n\n"),
       "",

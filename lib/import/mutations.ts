@@ -13,7 +13,11 @@ import {
   MAX_DECK_CARD_QUANTITY,
   type DeckBoard,
 } from "@/lib/decks/constants";
-import { checkDeckName, cleanDeckName } from "@/lib/decks/mutations";
+import {
+  checkDeckName,
+  checkDeckShape,
+  cleanDeckName,
+} from "@/lib/decks/mutations";
 
 import { MAX_IMPORT_LINES } from "./constants";
 import { DEFAULT_PRINTING_ORDER } from "./printing";
@@ -74,7 +78,19 @@ export type ApplyTarget =
       defaultCondition: string;
     }
   | { kind: "deck"; deckId: string }
-  | { kind: "new-deck"; name: string };
+  | {
+      kind: "new-deck";
+      name: string;
+      /**
+       * `commander` when unset, which is what the paste box defaulted to
+       * before cubes existed. A cube arrives this way far more often than a
+       * Commander deck does — a 360-card list is a paste, not an afternoon
+       * of typing — so the destination carries the format rather than
+       * leaving the deck to be created and then mislabelled.
+       */
+      format?: string | null;
+      targetSize?: number | null;
+    };
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -306,7 +322,10 @@ export async function applyImport(
       case "deck":
         return await applyToDeck(checked.lines, target.deckId, null);
       case "new-deck":
-        return await applyToNewDeck(checked.lines, target.name);
+        return await applyToNewDeck(checked.lines, target.name, {
+          format: target.format,
+          targetSize: target.targetSize,
+        });
     }
   } catch (error) {
     return { ok: false, error: describeDbError(error, "import those cards") };
@@ -428,10 +447,16 @@ async function applyToDeck(
 async function applyToNewDeck(
   lines: CleanLine[],
   name: string,
+  shapeInput: { format?: string | null; targetSize?: number | null },
 ): Promise<ImportApplied> {
   const trimmed = cleanDeckName(name);
   const nameError = checkDeckName(trimmed);
   if (nameError) return { ok: false, error: nameError };
+
+  // The same check the deck form goes through, for the same reason: this is
+  // a public endpoint's payload, not a typed call.
+  const shape = checkDeckShape(shapeInput);
+  if (!shape.ok) return { ok: false, error: shape.error };
 
   const db = getDb();
 
@@ -440,8 +465,8 @@ async function applyToNewDeck(
   return await db.transaction(async (tx) => {
     const { rows: deckRows } = await tx.execute<{ id: string; name: string }>(
       sql`
-        INSERT INTO decks (name)
-        VALUES (${trimmed})
+        INSERT INTO decks (name, format, target_size)
+        VALUES (${trimmed}, ${shape.format}, ${shape.targetSize})
         RETURNING id::text AS id, name
       `,
     );

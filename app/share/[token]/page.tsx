@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
-import { DECK_BOARD_LABELS } from "@/lib/decks/constants";
+import { CubeReportPanel } from "@/components/cube-report";
+import { DECK_FORMAT_LABELS, boardLabel } from "@/lib/decks/constants";
 import { formatColorIdentity } from "@/lib/decks/legality";
 import { getSharedDeck } from "@/lib/decks/share";
 
@@ -31,7 +32,11 @@ export default async function SharedDeckPage({
   // that never existed should look identical from outside.
   if (!deck) notFound();
 
-  const errors = deck.legality.problems.filter((p) => p.severity === "error");
+  const commander =
+    deck.verdict.kind === "commander" ? deck.verdict.report : null;
+  const errors = commander
+    ? commander.problems.filter((p) => p.severity === "error")
+    : [];
 
   return (
     <div className="flex flex-1 flex-col">
@@ -47,20 +52,35 @@ export default async function SharedDeckPage({
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">{deck.name}</h1>
-          <span className="font-mono text-sm uppercase text-muted">
-            {formatColorIdentity(deck.legality.colorIdentity)}
-          </span>
+          {commander ? (
+            <span className="font-mono text-sm uppercase text-muted">
+              {formatColorIdentity(commander.colorIdentity)}
+            </span>
+          ) : null}
         </div>
 
         <p className="mt-2 text-sm text-muted">
-          {deck.legality.cardCount} card
-          {deck.legality.cardCount === 1 ? "" : "s"} ·{" "}
-          {deck.format === "commander" ? "Commander" : deck.format} ·{" "}
-          <span className={deck.legality.legal ? "text-ok" : "text-bad"}>
-            {deck.legality.legal ? "legal" : "not legal"}
-          </span>{" "}
+          {deck.verdict.report.cardCount} card
+          {deck.verdict.report.cardCount === 1 ? "" : "s"} ·{" "}
+          {DECK_FORMAT_LABELS[deck.format]}
+          {commander ? (
+            <>
+              {" · "}
+              <span className={commander.legal ? "text-ok" : "text-bad"}>
+                {commander.legal ? "legal" : "not legal"}
+              </span>
+            </>
+          ) : null}{" "}
           · updated {deck.updatedAt.slice(0, 10)}
         </p>
+
+        {/*
+          No `ownedCopies`: a visitor is shown the cube, not the collection
+          behind it. The panel takes null for exactly this case.
+        */}
+        {deck.verdict.kind === "cube" ? (
+          <CubeReportPanel report={deck.verdict.report} />
+        ) : null}
 
         {errors.length > 0 ? (
           <ul className="mt-4 space-y-1">
@@ -86,7 +106,7 @@ export default async function SharedDeckPage({
           return (
             <section key={board} className="mt-8">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-                {DECK_BOARD_LABELS[board]} ({copies})
+                {boardLabel(deck.format, board)} ({copies})
               </h2>
               <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
                 <table className="w-full text-sm">

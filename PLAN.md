@@ -14,6 +14,8 @@ Established requirements:
 
 - **Formats played:** Commander and sealed. This narrows Phase 5 considerably — Commander rules
   (singleton, color identity, 100 cards) instead of a general multi-format legality engine.
+  (Cubes were added after the eight phases; they are a second *kind of list*, not a second
+  rule set to validate — see the end of §7.)
 - **Existing collection:** none. Nothing to migrate, so bulk import is a convenience rather than
   a day-one blocker.
 - **Collection size:** a few hundred cards. Scale is a non-issue; no pagination or
@@ -287,7 +289,8 @@ collection_items  (id PK, printing_id FK, finish, condition,
                    acquired_price_cents, notes,
                    UNIQUE (printing_id, finish, condition, location_id))
 completion_targets(... see §4 ...)
-decks             (id PK, name, format, notes, location_id FK NULL,
+decks             (id PK, name, format, target_size NULL, notes,
+                   location_id FK NULL, share_token NULL,
                    UNIQUE lower(name))
 deck_cards        (id PK, deck_id FK, oracle_id FK, printing_id FK NULL,
                    board, quantity, is_allocated,
@@ -565,6 +568,37 @@ you own, what it is worth, or what is still to buy. Those are facts about you; t
 fact about the deck. The smoke suite asserts that against the serialised payload rather than
 field by field, because that is the kind of leak that stays invisible until it matters.
 
+
+**After the phases — Cubes** ✅
+
+A cube is the other list this collection is for, and it is not a Commander deck with rules
+turned off: no command zone, no colour identity to stay inside, no ban list, and a size its
+owner picks. So `decks.format` grew a second value and `getDeck` grew a **tagged verdict** —
+`{ kind: "commander" | "cube", report }` — rather than a `legality` field that would be fifteen
+irrelevant errors on a 360-card pool. The type is what stops a template reaching for a verdict
+the deck does not have.
+
+*Everything structural is shared.* Same tables, same `deck_cards`, same ownership, same
+allocation, same buy list, same share link — because a cube is a stack of cards you physically
+own and every one of those questions means the same thing for it. Only the report differs.
+
+*The report describes rather than judges.* Size against `decks.target_size` (null for
+Commander, because 100 is the rule and a row disagreeing with it would be a bug waiting), and
+the colour / mana-curve / type spread. Duplicates are a warning, never an error: singleton is
+convention, and basics and "any number of cards named ~" are exempt by the same function the
+Commander check uses. Cards left in a command zone still count and are reported, because a row
+that silently vanished from the size would be worse than an odd-looking one.
+
+*Colour is bucketed by `colors`, not `color_identity`* — the opposite of the Commander rules,
+and right here: a cube's balance is about what you cast with which mana, so Bloodghast is black
+rather than black-red. *The bars are one hue.* WUBRG as swatches fails contrast and lightness
+against both surfaces; each distribution is one series in `--chart-line` with the label
+carrying the identity.
+
+*The format is chosen at creation and not changed after.* Switching would silently reinterpret
+every card in the list. Pasting into a new cube is one control on the import screen instead,
+which is how a 360-card list arrives anyway.
+
 ---
 
 ## 8. Risks and constraints
@@ -586,8 +620,8 @@ field by field, because that is the kind of leak that stays invisible until it m
 
 ## 9. Open questions
 
-None. All eight phases are built, deployed and verified; what is left is in §10 by
-choice, not by blockage. The one outstanding manual step is optional: connecting the
+None. All eight phases are built, deployed and verified, and cubes are in on top of them;
+what is left is in §10 by choice, not by blockage. The one outstanding manual step is optional: connecting the
 GitHub repo to Firebase App Hosting for push-to-deploy, which needs a browser to
 authorize the Firebase GitHub App. Until then, deploying is
 `firebase deploy --only apphosting`.
@@ -599,5 +633,9 @@ authorize the Firebase GitHub App. Until then, deploying is
   collector-number entry proves too slow — which for pack-at-a-time sealed play, it may not.
 - Offline-capable PWA with a write outbox.
 - Sealed/draft pool tracking as a first-class concept (distinct from the permanent collection).
+  A cube is a curated pool and now exists; a *sealed* pool is what six packs happened to contain,
+  which is a different thing and still not modelled.
+- Drafting *from* a cube in the app — pack generation, pick tracking, pool export. The cube
+  itself is a list; a draft is a session, and sessions are a schema of their own.
 - Trade tracking and want-list matching.
 - Price alerts.
