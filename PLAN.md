@@ -455,10 +455,41 @@ would otherwise be rejected. And a two-commander pair this cannot verify is a **
 an error, because the list of legal pairings keeps growing and calling a legal deck illegal is
 the worse failure.
 
-**Phase 6 — Bulk paste import**
+**Phase 6 — Bulk paste import** ✅
 Decklist text and CSV, with a review-and-resolve step for ambiguous names. Deliberately *after*
 decks: with no existing collection to migrate, its real use is importing a decklist you found
 online to check against what you own.
+→ *Done when:* you can paste a list from anywhere and see, before storing anything, which of
+those cards you already own.
+
+*Built as read-then-write, not import-then-fix.* The destination defaults to **nothing** — the
+review table is the answer to "do I own this deck?", and only a second, explicitly-labelled
+button writes. The reviewed list is what gets committed, never the pasted text re-parsed, or
+every choice made in the review would be thrown away on apply.
+
+*Four rules a simpler parser gets wrong,* each from a real exporter rather than from
+generalising one format:
+
+- **A set code is a hint, never a requirement.** Arena's codes diverge from Scryfall's, so an
+  unrecognised one is reported on the row and the card is matched by name anyway. A hint is also
+  matched against a set's *name*, because Deckbox's `Edition` column holds "Commander Legends"
+  where Arena writes `(CMR)` — that one change is the difference between a Deckbox CSV finding
+  its exact printing and falling back to a guess.
+- **A trailing parenthesis is not always a set.** "Erase (Not the Urza's Legacy One)" is a real
+  card, so only a code-shaped group counts; and a trailing `[...]` is Archidekt's category list
+  as often as it is MTGGoldfish's set code.
+- **Group headings are not cards.** Archidekt and Moxfield group by categories the user invented
+  ("Ramp (12)"), so the words cannot be listed. A count in parentheses with no quantity in front
+  is the tell — a card line's number always comes first.
+- **A CSV needs a real parser.** Card names are full of commas ("Erebos, God of the Dead"), so
+  splitting on the delimiter turns one card into two fields and shifts every column after it.
+
+*Two departures from the sketch.* There is no `import_batches` table: a review is a round trip,
+not a saved draft, so storing one would only add a table to clean up. And "which printing did it
+mean" is one shared ORDER BY (`lib/import/printing.ts`) used by both the preview and the write,
+because two copies of that list would drift and the review would start showing a printing other
+than the one it stored. That ordering also has to skip The List, whose entries are dated when
+they were re-inserted and so are the "newest" printing of every staple it holds.
 
 **Phase 7 — Value tracking**
 Weekly owned-printings price job, value dashboard, value-over-time chart, biggest movers,

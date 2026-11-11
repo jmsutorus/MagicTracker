@@ -1,14 +1,16 @@
 # MagicTracker
 
-Personal Magic: The Gathering collection tracker — collection, set completion,
-sealed product adds, and Commander decks. Built to run on free tiers
-indefinitely, with no subscription.
+Personal Magic: The Gathering collection tracker — collection entry, set
+completion, sealed product adds, Commander decks, and pasted-list import.
+Built to run on free tiers indefinitely, with no subscription.
 
 See [PLAN.md](./PLAN.md) for the architecture, data model, and phase plan,
 including why the stack is what it is.
 
-**Current state: Phase 0 (foundation) complete.** The card database and all
-collection features arrive in Phases 1–2.
+**Current state: Phases 0–6 complete.** Card search, collection entry with
+locations, per-set completion, precon adds, Commander decks with a legality
+engine and buy list, and paste import all work. Phase 7 is value tracking;
+Phase 8 is polish (PWA icon, exports, share links).
 
 ---
 
@@ -222,6 +224,7 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run completion:smoke` | End-to-end check of set completion against the real database |
 | `npm run products:smoke` | End-to-end check of sealed-product add against the real database |
 | `npm run decks:smoke` | End-to-end check of the deck layer against the real database |
+| `npm run import:smoke` | End-to-end check of paste import against the real database |
 | `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
 
 ## The collection
@@ -434,6 +437,78 @@ banned, not-legal, colour identity, an ineligible commander — is an error.
 Nothing stops you *storing* an illegal deck. A deck mid-edit is illegal almost
 all of the time, so the rules engine reports rather than refuses; the legality
 panel is the verdict and the tables are just storage.
+
+## Importing a pasted list
+
+`/import` takes a decklist or a CSV export, says what it means, and only then
+offers to store it.
+
+**Reading comes before writing.** The destination defaults to *nothing*. The
+point of the screen, per PLAN.md §7, is "paste a decklist you found online and
+see what you already own" — so the review table is the answer, and making you
+choose a destination before you could see it would put a write in front of a
+read. What gets committed is the **reviewed** list, with your picks for
+anything ambiguous; the pasted text is never re-parsed at apply time, because
+that would throw away every choice you just made.
+
+**Every line is accounted for.** A line matching one card shows it. A line
+that could be several offers the choice. A line matching nothing offers the
+near misses, or can be left out — a list naming one card this database has
+never heard of must not block the other 99. And any assumption the server made
+is printed on the row that it affected: a set code it could not place, a
+printing it picked for you, a front face it matched, a finish that printing was
+never made in.
+
+### What it understands
+
+| | |
+|---|---|
+| Decklists | Arena, Moxfield, Archidekt, Deckstats, TappedOut, MTGGoldfish, and plain `4 Lightning Bolt` |
+| Quantities | `4 x`, `4x`, `4×`, or none at all (one copy) |
+| Set and number | `(LTC) 284`, `(LTC) #284`, `[LTC]`, `1 [LTC] Sol Ring`, or a set's full name |
+| Markers | `*F*` foil, `*E*` etched, `*CMDR*`, `SB:`, Deckstats' `# !Commander` |
+| Sections | Commander / Deck / Sideboard / Maybeboard, including `//Main`; card-type and user-invented group headings are skipped |
+| CSV and TSV | Deckbox and ManaBox exports, or anything with a card-name column; comma, tab or semicolon |
+| CSV columns | count, name, set, collector number, foil, condition, and a Scryfall id when there is one |
+
+### Four rules a simpler parser gets wrong
+
+Each came from a real exporter, not from generalising one format:
+
+| | |
+|---|---|
+| A set code is a **hint** | Arena's codes diverge from Scryfall's, so an unrecognised one is reported and the card is matched by name anyway. A hint is also matched against a set's *name*, because Deckbox's `Edition` column holds "Commander Legends" where Arena writes `(CMR)` |
+| A trailing parenthesis is not always a set | "Erase (Not the Urza's Legacy One)" is a real card, so only a code-shaped group counts. A trailing `[...]` is Archidekt's category list as often as it is a set code |
+| Group headings are not cards | Archidekt lets you invent categories, so the words cannot be listed. A count in parentheses with no quantity in front is the tell — a card line's number always comes first. Without this, "Ramp (12)" imports as a card called Ramp from set 12 |
+| A CSV needs a real parser | Card names are full of commas — "Erebos, God of the Dead" — so splitting on the delimiter turns one card into two fields and shifts every column after it |
+
+### Which printing a bare name gets
+
+One ordering, in `lib/import/printing.ts`, used by **both** the preview and the
+write — two copies would drift, and then the review would show a printing other
+than the one it stored. In priority order: not an art-series card, not digital,
+English, not a promo, boosters first, **a plain numeric collector number**,
+then newest.
+
+That numeric rule exists for The List, which is dated by when each card was
+re-inserted and so is the "newest" printing of every staple it holds; its
+collector numbers are the reprinted set's (`CLB-187`). Testing the printed text
+and not `collector_number_num` matters, because that column is a digits-only
+extraction — for `CLB-187` it holds `187`, so it cannot tell a List entry from
+a real #187.
+
+### Where the cards go
+
+| Destination | What happens |
+|---|---|
+| Nothing | The default. Nothing is stored; the numbers are the answer. A "what you're missing" list downloads as plain text |
+| Collection | Every line, the maybeboard included — a card is a card you own whichever board a list filed it under. A finish or condition the file stated wins; the rest take the defaults you pick |
+| Deck | An existing deck or a new one. Nothing in the collection moves. A sideboard lands on the maybeboard, since Commander has none |
+
+Each destination is **one statement**, so a half-written import cannot happen.
+Both group by their unique key before inserting, which is not an optimisation:
+an `INSERT ... ON CONFLICT DO UPDATE` whose rows contain the same key twice
+fails outright, and a pasted list repeats cards all the time.
 
 ## How auth is structured
 

@@ -30,11 +30,12 @@ function isBoard(value: string): value is DeckBoard {
   return (DECK_BOARDS as readonly string[]).includes(value);
 }
 
-function cleanName(name: string): string {
+/** Exported so lib/import/mutations.ts validates a deck name the one way. */
+export function cleanDeckName(name: string): string {
   return name.trim().replace(/\s+/g, " ");
 }
 
-function checkName(name: string): string | null {
+export function checkDeckName(name: string): string | null {
   if (name.length === 0) return "A deck needs a name.";
   if (name.length > MAX_DECK_NAME_LENGTH) {
     return `That name is too long (${MAX_DECK_NAME_LENGTH} characters max).`;
@@ -51,8 +52,8 @@ export async function createDeck(
   name: string,
   notes?: string | null,
 ): Promise<DeckCreated> {
-  const trimmed = cleanName(name);
-  const nameError = checkName(trimmed);
+  const trimmed = cleanDeckName(name);
+  const nameError = checkDeckName(trimmed);
   if (nameError) return { ok: false, error: nameError };
 
   const db = getDb();
@@ -82,8 +83,8 @@ export async function renameDeck(
 ): Promise<DeckResult> {
   if (!UUID_RE.test(deckId)) return { ok: false, error: "Unknown deck." };
 
-  const trimmed = cleanName(name);
-  const nameError = checkName(trimmed);
+  const trimmed = cleanDeckName(name);
+  const nameError = checkDeckName(trimmed);
   if (nameError) return { ok: false, error: nameError };
 
   const db = getDb();
@@ -506,8 +507,8 @@ export async function createDeckFromProduct(
   name: string,
   locationId: string | null,
 ): Promise<DeckCreated> {
-  const trimmed = cleanName(name);
-  const nameError = checkName(trimmed);
+  const trimmed = cleanDeckName(name);
+  const nameError = checkDeckName(trimmed);
   if (nameError) return { ok: false, error: nameError };
 
   if (locationId !== null && !UUID_RE.test(locationId)) {

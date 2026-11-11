@@ -6,7 +6,13 @@ export function AppHeader({
   current,
 }: {
   current?:
-    "dashboard" | "cards" | "collection" | "sets" | "products" | "decks";
+    | "dashboard"
+    | "cards"
+    | "collection"
+    | "sets"
+    | "products"
+    | "decks"
+    | "import";
 }) {
   const navClass = (key: string) =>
     `text-sm ${
@@ -38,6 +44,9 @@ export function AppHeader({
           </Link>
           <Link href="/cards" className={navClass("cards")}>
             Cards
+          </Link>
+          <Link href="/import" className={navClass("import")}>
+            Import
           </Link>
         </nav>
 

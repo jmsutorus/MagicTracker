@@ -2,17 +2,77 @@ import { AppHeader } from "@/components/app-header";
 import { requireUser } from "@/lib/auth/dal";
 import { getDbStatus } from "@/lib/db/status";
 
-const PHASES = [
-  { n: 0, name: "Foundation", detail: "App, database, auth, deploy", state: "done" },
-  { n: 1, name: "Card database + search", detail: "Scryfall ingest, pg_trgm type-ahead", state: "done" },
-  { n: 2, name: "Collection entry", detail: "Name + collector-number modes, locations", state: "done" },
-  { n: 3, name: "Set completion", detail: "Per-set scope rules, missing-card lists", state: "done" },
-  { n: 4, name: "Sealed product add", detail: "Precons in two clicks", state: "done" },
-  { n: 5, name: "Commander decks", detail: "Singleton, color identity, buy list", state: "done" },
-  { n: 6, name: "Bulk paste import", detail: "Decklists and CSV", state: "current" },
-  { n: 7, name: "Value tracking", detail: "Weekly owned-card prices", state: "next" },
-  { n: 8, name: "Polish", detail: "PWA icon, exports, share links", state: "todo" },
-] as const;
+/**
+ * Annotated rather than inferred from `as const`.
+ *
+ * With the literal types, a state no phase currently holds makes its branch
+ * in the renderer a type error ("no overlap"), which would mean editing the
+ * presentation every time a phase ships. The roadmap's shape is the stable
+ * thing here; which state each phase is in is not.
+ */
+type PhaseState = "done" | "current" | "next" | "todo";
+
+const PHASES: readonly {
+  n: number;
+  name: string;
+  detail: string;
+  state: PhaseState;
+}[] = [
+  {
+    n: 0,
+    name: "Foundation",
+    detail: "App, database, auth, deploy",
+    state: "done",
+  },
+  {
+    n: 1,
+    name: "Card database + search",
+    detail: "Scryfall ingest, pg_trgm type-ahead",
+    state: "done",
+  },
+  {
+    n: 2,
+    name: "Collection entry",
+    detail: "Name + collector-number modes, locations",
+    state: "done",
+  },
+  {
+    n: 3,
+    name: "Set completion",
+    detail: "Per-set scope rules, missing-card lists",
+    state: "done",
+  },
+  {
+    n: 4,
+    name: "Sealed product add",
+    detail: "Precons in two clicks",
+    state: "done",
+  },
+  {
+    n: 5,
+    name: "Commander decks",
+    detail: "Singleton, color identity, buy list",
+    state: "done",
+  },
+  {
+    n: 6,
+    name: "Bulk paste import",
+    detail: "Decklists and CSV, with a review step",
+    state: "done",
+  },
+  {
+    n: 7,
+    name: "Value tracking",
+    detail: "Weekly owned-card prices",
+    state: "current",
+  },
+  {
+    n: 8,
+    name: "Polish",
+    detail: "PWA icon, exports, share links",
+    state: "next",
+  },
+];
 
 function StatusRow({
   label,
@@ -50,9 +110,7 @@ export default async function DashboardPage() {
 
       <main className="flex-1 mx-auto w-full max-w-3xl px-4 py-8 space-y-8">
         <section>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Dashboard
-          </h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="mt-2 text-muted">
             Signed in as{" "}
             <span className="font-mono text-foreground">{user.email}</span>.
@@ -68,7 +126,10 @@ export default async function DashboardPage() {
               <>
                 <StatusRow label="Connection" value="reachable" tone="ok" />
                 <StatusRow label="Server" value={status.serverVersion} />
-                <StatusRow label="Round trip" value={`${status.latencyMs} ms`} />
+                <StatusRow
+                  label="Round trip"
+                  value={`${status.latencyMs} ms`}
+                />
                 <StatusRow
                   label="pg_trgm (fuzzy search)"
                   value={status.pgTrgmInstalled ? "installed" : "not installed"}
@@ -81,7 +142,9 @@ export default async function DashboardPage() {
                 />
                 <StatusRow
                   label="Tables"
-                  value={status.tables.length ? status.tables.join(", ") : "none"}
+                  value={
+                    status.tables.length ? status.tables.join(", ") : "none"
+                  }
                 />
               </>
             ) : (
@@ -93,8 +156,8 @@ export default async function DashboardPage() {
           </dl>
           {status.reachable && status.latencyMs > 1000 ? (
             <p className="mt-3 text-xs text-muted">
-              A slow first request is expected: Neon&apos;s free compute suspends
-              after 5 minutes idle and takes a few hundred ms to wake.
+              A slow first request is expected: Neon&apos;s free compute
+              suspends after 5 minutes idle and takes a few hundred ms to wake.
             </p>
           ) : null}
         </section>
@@ -128,7 +191,9 @@ export default async function DashboardPage() {
                   >
                     {phase.name}
                   </span>
-                  <span className="block text-xs text-muted">{phase.detail}</span>
+                  <span className="block text-xs text-muted">
+                    {phase.detail}
+                  </span>
                 </span>
                 {phase.state === "current" ? (
                   <span className="shrink-0 text-xs text-accent">building</span>
