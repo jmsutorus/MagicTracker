@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
+import { CardLink } from "@/components/card-link";
 import { CompletionScopeForm } from "@/components/completion-scope-form";
+import { ManaCost } from "@/components/mana-cost";
 import { ProgressBar } from "@/components/progress-bar";
 import { PurchaseButtons } from "@/components/purchase-buttons";
 import { requireUser } from "@/lib/auth/dal";
@@ -213,15 +215,17 @@ export default async function SetCompletionPage({
                           {card.collectorNumber}
                         </td>
                         <td className="px-4 py-2">
-                          <Link
-                            href={`/cards/${card.oracleId}`}
-                            className="hover:underline"
-                          >
-                            {card.name}
-                          </Link>
+                          {/* The missing-cards list is exactly where you want
+                              to see the card without navigating: these are
+                              printings you are deciding whether to buy. */}
+                          <CardLink
+                            oracleId={card.oracleId}
+                            imageId={card.scryfallId}
+                            name={card.name}
+                          />
                         </td>
-                        <td className="hidden px-4 py-2 font-mono text-xs text-muted sm:table-cell">
-                          {card.manaCost ?? ""}
+                        <td className="hidden px-4 py-2 sm:table-cell">
+                          <ManaCost cost={card.manaCost} />
                         </td>
                         <td className="px-4 py-2 text-xs text-muted">
                           {card.rarity}

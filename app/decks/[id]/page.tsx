@@ -5,24 +5,22 @@ import { notFound } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
 import { CubeReportPanel } from "@/components/cube-report";
 import { CubeSizeForm } from "@/components/cube-size-form";
-import { DeckCardControls } from "@/components/deck-card-controls";
+import { DeckEditor } from "@/components/deck-editor";
 import { DeckCardSearch } from "@/components/deck-card-search";
 import { DeckShare } from "@/components/deck-share";
+import { DeckStats } from "@/components/deck-stats";
 import { DeckToolbar } from "@/components/deck-toolbar";
+import { ColorIdentity } from "@/components/mana-cost";
 import { ProgressBar } from "@/components/progress-bar";
 import { PurchaseButtons } from "@/components/purchase-buttons";
 import { requireUser } from "@/lib/auth/dal";
 import { listLocations } from "@/lib/collection/queries";
 import {
   COMMANDER_DECK_SIZE,
-  DECK_BOARDS,
   DECK_FORMAT_LABELS,
-  boardLabel,
-  type DeckBoard,
-  type DeckFormat,
 } from "@/lib/decks/constants";
-import { formatColorIdentity, type LegalityReport } from "@/lib/decks/legality";
-import { getDeck, type DeckCardRow } from "@/lib/decks/queries";
+import { type LegalityReport } from "@/lib/decks/legality";
+import { getDeck } from "@/lib/decks/queries";
 import { getShareState } from "@/lib/decks/share";
 
 export const metadata = { title: "Deck · MagicTracker" };
@@ -86,9 +84,12 @@ export default async function DeckPage({
         <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">{deck.name}</h1>
           {deck.verdict.kind === "commander" ? (
-            <span className="font-mono text-sm uppercase text-muted">
-              {formatColorIdentity(deck.verdict.report.colorIdentity)}
-            </span>
+            /* Pips, not "WUB": the deck's colours are the first thing a
+               player reads off a deck page, and they read them as symbols. */
+            <ColorIdentity
+              colors={deck.verdict.report.colorIdentity}
+              size={16}
+            />
           ) : (
             <span className="text-sm text-muted">
               {DECK_FORMAT_LABELS[deck.format]} · {deck.targetSize} cards
@@ -118,6 +119,11 @@ export default async function DeckPage({
             <CubeSizeForm deckId={deck.id} targetSize={deck.targetSize} />
           </CubeReportPanel>
         )}
+
+        {/* ---- what the deck is made of ---------------------------------- */}
+        <div className="mt-6">
+          <DeckStats cards={deck.cards} />
+        </div>
 
         {/* ---- buy list -------------------------------------------------- */}
         {deck.missing.length > 0 ? (
@@ -201,19 +207,13 @@ export default async function DeckPage({
           />
         </div>
 
-        {DECK_BOARDS.map((board) => {
-          const cards = deck.cards.filter((c) => c.board === board);
-          if (cards.length === 0) return null;
-          return (
-            <BoardSection
-              key={board}
-              board={board}
-              cards={cards}
-              deckId={deck.id}
-              format={deck.format}
-            />
-          );
-        })}
+        {deck.cards.length > 0 ? (
+          <DeckEditor
+            deckId={deck.id}
+            format={deck.format}
+            cards={deck.cards}
+          />
+        ) : null}
 
         {deck.cards.length === 0 ? (
           <p className="mt-8 rounded-lg border border-border bg-surface p-5 text-sm text-muted">
@@ -238,108 +238,6 @@ export default async function DeckPage({
         ) : null}
       </main>
     </div>
-  );
-}
-
-function BoardSection({
-  board,
-  cards,
-  deckId,
-  format,
-}: {
-  board: DeckBoard;
-  cards: DeckCardRow[];
-  deckId: string;
-  format: DeckFormat;
-}) {
-  const copies = cards.reduce((n, c) => n + c.quantity, 0);
-
-  return (
-    <section className="mt-8">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
-        {boardLabel(format, board)} ({copies})
-        {board === "maybe" ? (
-          <span className="ml-2 font-normal normal-case">
-            — counts toward nothing
-          </span>
-        ) : null}
-      </h2>
-
-      <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-              <th className="px-4 py-2 font-medium">Card</th>
-              <th className="hidden px-4 py-2 font-medium sm:table-cell">
-                Cost
-              </th>
-              <th className="px-4 py-2 font-medium">Have</th>
-              <th className="px-4 py-2 font-medium">In deck</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cards.map((card) => {
-              const short =
-                card.board !== "maybe" && card.available < card.quantity;
-              return (
-                <tr
-                  key={card.id}
-                  className="border-b border-border last:border-0"
-                >
-                  <td className="px-4 py-2">
-                    <Link
-                      href={`/cards/${card.oracleId}`}
-                      className="hover:underline"
-                    >
-                      {card.name}
-                    </Link>
-                    {card.isAllocated ? (
-                      <span className="ml-2 text-xs text-muted">claimed</span>
-                    ) : null}
-                    {/* A cube has no ban list, so the badge would be a
-                        verdict nobody asked for. */}
-                    {format === "commander" &&
-                    card.commanderLegality !== "legal" ? (
-                      <span className="ml-2 text-xs text-bad">
-                        {card.commanderLegality === "banned"
-                          ? "banned"
-                          : "not legal"}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="hidden px-4 py-2 font-mono text-xs text-muted sm:table-cell">
-                    {card.manaCost ?? ""}
-                  </td>
-                  <td
-                    className={`px-4 py-2 text-xs ${short ? "text-bad" : "text-muted"}`}
-                  >
-                    {/*
-                     * "Available", not "owned": a copy another built deck has
-                     * claimed is not one you can put in this deck, and
-                     * showing it as available is how you plan two decks that
-                     * cannot both exist. The owned total is shown alongside
-                     * when the two differ, so the claim is visible rather
-                     * than looking like a missing card.
-                     */}
-                    {card.available}
-                    {card.owned !== card.available ? ` of ${card.owned}` : ""}
-                  </td>
-                  <td className="px-4 py-2">
-                    <DeckCardControls
-                      deckCardId={card.id}
-                      deckId={deckId}
-                      format={format}
-                      board={card.board}
-                      quantity={card.quantity}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </section>
   );
 }
 

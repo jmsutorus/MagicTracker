@@ -821,6 +821,24 @@ export const deckCards = pgTable(
     /** commander | main | maybe */
     board: text("board").notNull().default("main"),
 
+    /**
+     * The owner's own grouping for this card — "Ramp", "Removal", "Card
+     * draw". Free text, not a foreign key to a categories table.
+     *
+     * This is how every other deckbuilder models it, and the reason is that
+     * a category has no identity worth preserving: renaming "Removal" to
+     * "Interaction" is a bulk UPDATE either way, and a category with no
+     * cards in it is not a thing anyone wants kept. A table would buy
+     * ordering and colours at the cost of a join on the hottest query in the
+     * app, for a feature whose whole job is to put twelve rows under a
+     * heading.
+     *
+     * Null means uncategorised, which is the honest default: the deck page
+     * can group by card type or mana value without anyone having typed a
+     * category, and those groupings are derived rather than stored.
+     */
+    category: text("category"),
+
     quantity: integer("quantity").notNull().default(1),
 
     /**
@@ -854,6 +872,16 @@ export const deckCards = pgTable(
     index("deck_cards_oracle_idx").on(table.oracleId),
     index("deck_cards_allocated_idx").on(table.isAllocated),
     check("deck_cards_quantity_check", sql`${table.quantity} > 0`),
+    /*
+     * A category is a heading, not a paragraph. The bound matches
+     * MAX_CATEGORY_LENGTH in lib/decks/constants.ts, and the emptiness check
+     * is what stops '' and '   ' becoming a category distinct from "no
+     * category" — the mutation trims to null, and this is the backstop.
+     */
+    check(
+      "deck_cards_category_check",
+      sql`${table.category} IS NULL OR (length(${table.category}) BETWEEN 1 AND 40 AND btrim(${table.category}) = ${table.category})`,
+    ),
     check(
       "deck_cards_board_check",
       sql`${table.board} IN ('commander', 'main', 'maybe')`,

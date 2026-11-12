@@ -1,9 +1,10 @@
 import Link from "next/link";
 
 import { AppHeader } from "@/components/app-header";
-import { CollectionRowControls } from "@/components/collection-row-controls";
+import { CollectionFilters } from "@/components/collection-filters";
+import { CollectionTable } from "@/components/collection-table";
 import { requireUser } from "@/lib/auth/dal";
-import { CARD_FINISHES } from "@/lib/collection/constants";
+import { isCollectionSort } from "@/lib/collection/constants";
 import {
   browseCollection,
   getCollectionTotals,
@@ -13,7 +14,6 @@ import {
 
 export const metadata = { title: "Collection · MagicTracker" };
 
-const RARITIES = ["common", "uncommon", "rare", "mythic", "special", "bonus"];
 const PAGE_SIZE = 100;
 
 /** Reads one query-string value, ignoring a repeated parameter. */
@@ -36,6 +36,10 @@ export default async function CollectionPage({
   const locationId = one(params.location) ?? "";
   const finish = one(params.finish) ?? "";
   const rarity = one(params.rarity) ?? "";
+  const sortParam = one(params.sort);
+  // Anything unrecognised falls back to the default rather than erroring:
+  // a stale bookmark with an old sort name should still show the collection.
+  const sort = isCollectionSort(sortParam) ? sortParam : "name";
   const pageParam = Number.parseInt(one(params.page) ?? "1", 10);
   const page = Number.isSafeInteger(pageParam) && pageParam > 0 ? pageParam : 1;
 
@@ -49,6 +53,7 @@ export default async function CollectionPage({
       locationId: locationId || undefined,
       finish: finish || undefined,
       rarity: rarity || undefined,
+      sort,
       limit: PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
     }),
@@ -57,9 +62,6 @@ export default async function CollectionPage({
   const filtered = Boolean(q || setCode || locationId || finish || rarity);
   const lastPage = Math.max(1, Math.ceil(result.matchingRows / PAGE_SIZE));
 
-  const selectClass =
-    "rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-accent";
-
   function pageHref(target: number) {
     const search = new URLSearchParams();
     if (q) search.set("q", q);
@@ -67,6 +69,7 @@ export default async function CollectionPage({
     if (locationId) search.set("location", locationId);
     if (finish) search.set("finish", finish);
     if (rarity) search.set("rarity", rarity);
+    if (sort !== "name") search.set("sort", sort);
     if (target > 1) search.set("page", String(target));
     const query = search.toString();
     return query.length > 0 ? `/collection?${query}` : "/collection";
@@ -115,93 +118,14 @@ export default async function CollectionPage({
               <Stat label="Foils" value={totals.foilCopies} />
             </dl>
 
-            <form className="mt-6 flex flex-wrap items-end gap-3">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted">Name contains</span>
-                <input
-                  name="q"
-                  defaultValue={q}
-                  placeholder="bolt"
-                  className="rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
-                />
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted">Set</span>
-                <select name="set" defaultValue={setCode} className={selectClass}>
-                  <option value="">any</option>
-                  {collectedSets.map((s) => (
-                    <option key={s.code} value={s.code}>
-                      {s.name} ({s.copies})
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted">Location</span>
-                <select
-                  name="location"
-                  defaultValue={locationId}
-                  className={selectClass}
-                >
-                  <option value="">anywhere</option>
-                  {locations.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name} ({l.cardCount})
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted">Finish</span>
-                <select
-                  name="finish"
-                  defaultValue={finish}
-                  className={selectClass}
-                >
-                  <option value="">any</option>
-                  {CARD_FINISHES.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted">Rarity</span>
-                <select
-                  name="rarity"
-                  defaultValue={rarity}
-                  className={selectClass}
-                >
-                  <option value="">any</option>
-                  {RARITIES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <button
-                type="submit"
-                className="cursor-pointer rounded-lg border border-border bg-surface-muted px-3 py-2 text-sm hover:text-foreground"
-              >
-                Filter
-              </button>
-
-              {filtered ? (
-                <Link
-                  href="/collection"
-                  className="py-2 text-sm text-muted underline underline-offset-4 hover:text-foreground"
-                >
-                  Clear
-                </Link>
-              ) : null}
-            </form>
+            <CollectionFilters
+              sets={collectedSets}
+              locations={locations.map((l) => ({
+                id: l.id,
+                name: l.name,
+                cardCount: l.cardCount,
+              }))}
+            />
 
             <p className="mt-4 text-sm text-muted">
               {filtered
@@ -214,69 +138,10 @@ export default async function CollectionPage({
                 Nothing matches those filters.
               </p>
             ) : (
-              <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                      <th className="px-4 py-2 font-medium">Card</th>
-                      <th className="px-4 py-2 font-medium">Set</th>
-                      <th className="hidden px-4 py-2 font-medium sm:table-cell">
-                        Finish
-                      </th>
-                      <th className="px-4 py-2 text-right font-medium">
-                        Quantity &amp; location
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.rows.map((row) => (
-                      <tr key={row.itemId} className="border-b border-border last:border-0">
-                        <td className="px-4 py-2 align-top">
-                          <Link
-                            href={`/cards/${row.oracleId}`}
-                            className="hover:underline"
-                          >
-                            {row.name}
-                          </Link>
-                          <span className="block text-xs text-muted">
-                            {row.typeLine ?? ""}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 align-top">
-                          <span className="font-mono text-xs uppercase">
-                            {row.setCode}
-                          </span>{" "}
-                          <span className="font-mono text-xs text-muted">
-                            #{row.collectorNumber}
-                          </span>
-                          <span className="block text-xs text-muted">
-                            {row.rarity}
-                          </span>
-                        </td>
-                        <td className="hidden px-4 py-2 align-top sm:table-cell">
-                          <span className="text-xs">
-                            {row.finish === "nonfoil" ? "—" : row.finish}
-                          </span>
-                          <span className="block text-xs text-muted">
-                            {row.condition}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 align-top">
-                          <CollectionRowControls
-                            itemId={row.itemId}
-                            quantity={row.quantity}
-                            locationId={row.locationId}
-                            locations={locations.map((l) => ({
-                              id: l.id,
-                              name: l.name,
-                            }))}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <CollectionTable
+                rows={result.rows}
+                locations={locations.map((l) => ({ id: l.id, name: l.name }))}
+              />
             )}
 
             {lastPage > 1 ? (

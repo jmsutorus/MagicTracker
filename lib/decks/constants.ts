@@ -137,6 +137,87 @@ export function boardLabel(format: DeckFormat, board: DeckBoard): string {
   return DECK_BOARD_LABELS[board];
 }
 
+/**
+ * CATEGORIES AND GROUPING
+ *
+ * How a decklist is read. A 100-card Commander deck in one alphabetical run
+ * is unreadable — the question anyone actually asks of a list is "how much
+ * ramp is in here", and the answer is a heading with eight cards under it.
+ * This is the feature Archidekt and Moxfield are really built around.
+ *
+ * Two kinds of grouping, deliberately:
+ *
+ *  - **Category** is stored, per card, and typed by the owner. It is the
+ *    only one that can express "this Sol Ring is ramp, that one is a combo
+ *    piece", because that is a judgement, not a property of the card.
+ *  - **Type, mana value and colour** are derived at render time from data
+ *    the card already has. They need no setup, which matters: a deck you
+ *    just pasted in should group usefully before you have typed anything.
+ */
+export const DECK_GROUPINGS = [
+  "category",
+  "type",
+  "cmc",
+  "color",
+  "none",
+] as const;
+export type DeckGrouping = (typeof DECK_GROUPINGS)[number];
+
+export const DECK_GROUPING_LABELS: Record<DeckGrouping, string> = {
+  category: "Category",
+  type: "Card type",
+  cmc: "Mana value",
+  color: "Color",
+  none: "Nothing",
+};
+
+export function isDeckGrouping(value: unknown): value is DeckGrouping {
+  return (
+    typeof value === "string" &&
+    (DECK_GROUPINGS as readonly string[]).includes(value)
+  );
+}
+
+/** Matches the CHECK on deck_cards.category. */
+export const MAX_CATEGORY_LENGTH = 40;
+
+/** What an uncategorised card is filed under. Not a storable category. */
+export const UNCATEGORISED = "Uncategorized";
+
+/**
+ * Offered in the category box as a starting point, not as the allowed set —
+ * the column is free text and a deck that wants "Stax" should get "Stax".
+ * These are simply the headings most Commander lists end up with.
+ */
+export const SUGGESTED_CATEGORIES: readonly string[] = [
+  "Ramp",
+  "Card draw",
+  "Removal",
+  "Board wipe",
+  "Tutor",
+  "Protection",
+  "Recursion",
+  "Finisher",
+  "Combo",
+  "Utility",
+  "Land",
+];
+
+/**
+ * Normalises a typed category to what belongs in the column, or null.
+ *
+ * Null and the empty string have to collapse to the same thing, or a deck
+ * grows an invisible category that sorts beside "Uncategorized" and contains
+ * the same cards. The CHECK constraint enforces the trimmed form; this is
+ * what makes sure it never has to fire.
+ */
+export function cleanCategory(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (trimmed.length === 0) return null;
+  return trimmed.slice(0, MAX_CATEGORY_LENGTH);
+}
+
 /** The most commanders a legal deck can have. */
 export const MAX_COMMANDERS = 2;
 

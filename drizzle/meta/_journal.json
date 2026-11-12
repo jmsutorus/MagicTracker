@@ -99,6 +99,13 @@
       "when": 1794428225738,
       "tag": "0013_wishlist",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794450156508,
+      "tag": "0014_deck_categories",
+      "breakpoints": true
     }
   ]
 }

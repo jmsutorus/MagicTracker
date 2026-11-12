@@ -183,12 +183,26 @@ export type DeckCardRow = {
   cmc: number | null;
   colorIdentity: string[];
   commanderLegality: string | null;
+  /** The owner's heading for this card; null is "Uncategorized". */
+  category: string | null;
   quantity: number;
   isAllocated: boolean;
   /** The chosen printing, when one is pinned. */
   printingId: string | null;
   printingSetCode: string | null;
   printingCollectorNumber: string | null;
+  /**
+   * The printing to draw the card as: the pinned one, or a representative one
+   * when nothing is pinned.
+   *
+   * A deck card is an oracle card — "a Sol Ring", not a particular Sol Ring —
+   * so most rows have no printing at all, and a visual deck view needs
+   * *something* to show. Falling back to the printing's own id keeps the
+   * image honest where one is pinned, and picks the plainest English version
+   * otherwise. Null only for a card with no printings at all, which the card
+   * ingest should make impossible.
+   */
+  imageId: string | null;
   /** Copies free to build with: owned minus other decks' claims. */
   available: number;
   /** Copies owned in total, ignoring every claim. */
@@ -266,17 +280,19 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
     oracle_text: string | null;
     keywords: string[] | null;
     commander_legality: string | null;
+    category: string | null;
     quantity: number;
     is_allocated: boolean;
     printing_id: string | null;
     printing_set_code: string | null;
     printing_collector_number: string | null;
+    image_id: string | null;
     available: number;
     owned: number;
   }>(sql`
     WITH base AS (
       SELECT dc.id, dc.board, dc.oracle_id, dc.quantity, dc.is_allocated,
-             dc.printing_id, dc.deck_id
+             dc.printing_id, dc.deck_id, dc.category
         FROM deck_cards dc
        WHERE dc.deck_id = ${deckId}::uuid
     )
@@ -292,11 +308,28 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
            o.oracle_text,
            o.keywords,
            o.legalities->>'commander' AS commander_legality,
+           base.category,
            base.quantity,
            base.is_allocated,
            base.printing_id::text AS printing_id,
            p.set_code         AS printing_set_code,
            p.collector_number AS printing_collector_number,
+           /*
+            * The image to draw this row as. The pinned printing wins; with
+            * nothing pinned, the plainest English printing stands in —
+            * English first, then booster-obtainable over extras, then the
+            * lowest collector number, which between them land on the
+            * ordinary version of the card rather than a borderless promo.
+            */
+           coalesce(base.printing_id, (
+             SELECT pr.scryfall_id
+               FROM printings pr
+              WHERE pr.oracle_id = base.oracle_id
+              ORDER BY pr.lang = 'en' DESC,
+                       pr.is_extra ASC,
+                       pr.collector_number_num ASC NULLS LAST
+              LIMIT 1
+           ))::text AS image_id,
            ${availableFragment(sql`${deckId}::uuid`)} AS available,
            coalesce((
              SELECT sum(c.quantity) FROM collection_items c
@@ -323,11 +356,13 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
     cmc: r.cmc,
     colorIdentity: r.color_identity ?? [],
     commanderLegality: r.commander_legality,
+    category: r.category,
     quantity: r.quantity,
     isAllocated: r.is_allocated,
     printingId: r.printing_id,
     printingSetCode: r.printing_set_code,
     printingCollectorNumber: r.printing_collector_number,
+    imageId: r.image_id,
     available: r.available,
     owned: r.owned,
   }));

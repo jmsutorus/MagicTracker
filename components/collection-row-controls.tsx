@@ -1,13 +1,13 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useCallback, useState } from "react";
 
 import {
   adjustQuantityAction,
   moveItemAction,
   removeItemAction,
 } from "@/app/collection/actions";
+import { useLiveQuantity } from "@/components/use-live-quantity";
 
 type Props = {
   itemId: string;
@@ -21,9 +21,10 @@ type Props = {
  *
  * The server owns the arithmetic — the action sends a delta, not a new total,
  * so two adjustments in flight at once cannot overwrite each other with a
- * stale number. The local quantity is only what is drawn until the refresh
- * lands, and the row disappears on reaching zero because the schema forbids a
- * stored quantity of 0.
+ * stale number. The quantity shown moves on the click rather than on the
+ * response, and the route is revalidated once the clicking stops; see
+ * use-live-quantity.ts for why it works that way. The row disappears on
+ * reaching zero because the schema forbids a stored quantity of 0.
  */
 export function CollectionRowControls({
   itemId,
@@ -31,46 +32,25 @@ export function CollectionRowControls({
   locationId,
   locations,
 }: Props) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [shown, setShown] = useState(quantity);
-  const [error, setError] = useState<string | null>(null);
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
 
-  async function adjust(delta: number) {
-    setError(null);
-    const result = await adjustQuantityAction(itemId, delta);
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    setShown(result.quantity);
-    startTransition(() => router.refresh());
-  }
+  const onAdjust = useCallback(
+    (delta: number) => adjustQuantityAction(itemId, delta),
+    [itemId],
+  );
 
-  async function remove() {
-    setError(null);
-    const result = await removeItemAction(itemId);
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    startTransition(() => router.refresh());
-  }
+  const { shown, error, adjust, run, refreshNow } = useLiveQuantity({
+    quantity,
+    onAdjust,
+  });
 
-  async function move(nextLocationId: string) {
+  function move(nextLocationId: string) {
     if (nextLocationId === locationId) return;
-    setError(null);
-    const result = await moveItemAction(itemId, nextLocationId);
-    if (!result.ok) {
-      setError(result.error);
-      return;
-    }
-    startTransition(() => router.refresh());
+    run(() => moveItemAction(itemId, nextLocationId));
   }
 
   const buttonClass =
-    "size-7 cursor-pointer rounded border border-border bg-surface text-sm leading-none text-muted hover:text-foreground disabled:opacity-40";
+    "size-7 cursor-pointer rounded border border-border bg-surface text-sm leading-none text-muted hover:border-accent hover:text-foreground";
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -82,8 +62,7 @@ export function CollectionRowControls({
 
       <select
         value={locationId}
-        onChange={(e) => void move(e.target.value)}
-        disabled={pending}
+        onChange={(e) => move(e.target.value)}
         aria-label="Location"
         className="rounded border border-border bg-surface px-2 py-1 text-xs outline-none focus:border-accent"
       >
@@ -97,18 +76,18 @@ export function CollectionRowControls({
       <div className="flex items-center gap-1">
         <button
           type="button"
-          onClick={() => void adjust(-1)}
-          disabled={pending}
+          onClick={() => adjust(-1)}
           aria-label="Remove one copy"
           className={buttonClass}
         >
           −
         </button>
-        <span className="w-8 text-center font-mono text-sm">{shown}</span>
+        <span className="w-8 text-center font-mono text-sm tabular-nums">
+          {shown}
+        </span>
         <button
           type="button"
-          onClick={() => void adjust(1)}
-          disabled={pending}
+          onClick={() => adjust(1)}
           aria-label="Add one copy"
           className={buttonClass}
         >
@@ -120,8 +99,18 @@ export function CollectionRowControls({
         <span className="flex items-center gap-2 text-xs">
           <button
             type="button"
-            onClick={() => void remove()}
-            disabled={pending}
+            onClick={() => {
+              /*
+               * Refreshed immediately rather than after the quiet period:
+               * the row is meant to vanish, and leaving a deleted row on
+               * screen for another 400ms reads as the click not working.
+               */
+              run(async () => {
+                const result = await removeItemAction(itemId);
+                if (result.ok) refreshNow();
+                return result;
+              });
+            }}
             className="cursor-pointer text-bad underline underline-offset-4"
           >
             remove all {shown}
@@ -138,7 +127,6 @@ export function CollectionRowControls({
         <button
           type="button"
           onClick={() => setConfirmingRemoval(true)}
-          disabled={pending}
           aria-label="Remove every copy in this row"
           className="cursor-pointer text-xs text-muted underline underline-offset-4 hover:text-bad"
         >

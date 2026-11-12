@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { AppHeader } from "@/components/app-header";
+import { ManaCost } from "@/components/mana-cost";
 import { PurchaseButtons } from "@/components/purchase-buttons";
 import { WishlistAdd } from "@/components/wishlist-add";
 import { WishlistRowControls } from "@/components/wishlist-row-controls";
@@ -118,9 +119,7 @@ export default async function WishlistPage() {
                       >
                         {row.name}
                       </Link>
-                      <span className="font-mono text-xs text-muted">
-                        {row.manaCost ?? ""}
-                      </span>
+                      <ManaCost cost={row.manaCost} size={13} />
                       <span className="min-w-0 flex-1 truncate text-xs text-muted">
                         {describe(row)}
                       </span>

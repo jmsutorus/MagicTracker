@@ -14,7 +14,7 @@ export default async function LocationsPage() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <AppHeader current="collection" />
+      <AppHeader current="locations" />
 
       <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8">
         <div className="flex flex-wrap items-baseline justify-between gap-3">

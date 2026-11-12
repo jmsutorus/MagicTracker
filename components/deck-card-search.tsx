@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { addDeckCardAction } from "@/app/decks/actions";
+import { ManaCost } from "@/components/mana-cost";
 import {
   boardLabel,
   boardsFor,
@@ -225,9 +226,7 @@ export function DeckCardSearch({
                   ) : null}
                 </span>
 
-                <span className="font-mono text-xs text-muted">
-                  {candidate.manaCost ?? ""}
-                </span>
+                <ManaCost cost={candidate.manaCost} size={13} />
 
                 {/* The three facts that make the row worth reading. */}
                 <span

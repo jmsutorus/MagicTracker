@@ -1,0 +1,2 @@
+ALTER TABLE "deck_cards" ADD COLUMN "category" text;--> statement-breakpoint
+ALTER TABLE "deck_cards" ADD CONSTRAINT "deck_cards_category_check" CHECK ("deck_cards"."category" IS NULL OR (length("deck_cards"."category") BETWEEN 1 AND 40 AND btrim("deck_cards"."category") = "deck_cards"."category"));

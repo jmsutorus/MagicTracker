@@ -9,7 +9,9 @@ import {
   createLocation,
   deleteLocation,
   moveItem,
+  moveItems,
   removeItem,
+  removeItems,
   renameLocation,
   type AddCopiesInput,
 } from "@/lib/collection/mutations";
@@ -81,5 +83,34 @@ export async function deleteLocationAction(id: string) {
   await requireUser();
   const result = await deleteLocation(id);
   if (result.ok) revalidateCollection();
+  return result;
+}
+
+/**
+ * Bulk actions over selected rows.
+ *
+ * The ids arrive as an array from the browser, so they are checked in
+ * lib/collection/mutations.ts the same way a single id is — a server action
+ * is a public endpoint, and "it came from my own checkbox list" is not a
+ * guarantee of anything.
+ *
+ * Sets, decks and the dashboard all read owned counts, so a bulk removal
+ * invalidates more than the collection page alone.
+ */
+export async function moveItemsAction(itemIds: string[], locationId: string) {
+  await requireUser();
+  const result = await moveItems(itemIds, locationId);
+  if (result.ok) revalidateCollection();
+  return result;
+}
+
+export async function removeItemsAction(itemIds: string[]) {
+  await requireUser();
+  const result = await removeItems(itemIds);
+  if (result.ok) {
+    revalidateCollection();
+    revalidatePath("/sets");
+    revalidatePath("/decks");
+  }
   return result;
 }

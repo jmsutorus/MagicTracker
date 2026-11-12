@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { CubeReportPanel } from "@/components/cube-report";
+import { ManaCost } from "@/components/mana-cost";
 import { DECK_FORMAT_LABELS, boardLabel } from "@/lib/decks/constants";
 import { formatColorIdentity } from "@/lib/decks/legality";
 import { getSharedDeck } from "@/lib/decks/share";
@@ -141,8 +142,8 @@ export default async function SharedDeckPage({
                             {card.typeLine ?? ""}
                           </span>
                         </td>
-                        <td className="hidden px-4 py-2 font-mono text-xs text-muted sm:table-cell">
-                          {card.manaCost ?? ""}
+                        <td className="hidden px-4 py-2 sm:table-cell">
+                          <ManaCost cost={card.manaCost} />
                         </td>
                         <td className="px-4 py-2 text-right [font-variant-numeric:tabular-nums]">
                           {card.quantity}

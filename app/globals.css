@@ -22,6 +22,39 @@
    * through the palette validator against the real surfaces.
    */
   --chart-line: #a86a2b;
+
+  /*
+   * THE FIVE MANA COLOURS
+   *
+   * A domain-mandated categorical palette: a blue-mana segment has to read
+   * blue to a Magic player, so the hues are given rather than chosen. What is
+   * chosen is the *step* of each hue, and each mode has its own — these were
+   * run through the palette validator against the real surfaces (#ffffff and
+   * #1d1b16), not flipped from one another.
+   *
+   * The order is WUBRG, which is the game's own fixed order and so is also the
+   * fixed hue order the categorical checks require — assignment never skips
+   * and never cycles.
+   *
+   * Both modes pass the lightness band, the chroma floor, the normal-vision
+   * floor (>= 15: light 17.0, dark 15.2) and 3:1 contrast. Both carry one
+   * WARN: green↔red sits in the 6–8 CVD floor band (light 6.4 protan, dark
+   * 7.8 protan), which is legal *only* with secondary encoding. Red and green
+   * being adjacent is forced by WUBRG, so the encoding is always doubled —
+   * every segment is labelled with its mana pip and its count, and segments
+   * are separated by a 2px surface gap rather than touching. Do not ship a
+   * mana-coloured mark without that label.
+   *
+   * Colorless is deliberately NOT in the set: a neutral gray cannot meet the
+   * chroma floor, and "no colour" is the one value that should read as absent.
+   * It takes --mana-c, the de-emphasis gray.
+   */
+  --mana-w: #a8862a;
+  --mana-u: #2a78d6;
+  --mana-b: #8e4a7d;
+  --mana-r: #d4452e;
+  --mana-g: #1f7d55;
+  --mana-c: #8a837a;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -38,6 +71,14 @@
     --warn: #d9bd6b;
     --bad: #e08a86;
     --chart-line: #c5803b;
+
+    /* Own steps for the dark surface — see the note above. */
+    --mana-w: #b18f33;
+    --mana-u: #5a96e0;
+    --mana-b: #b2659e;
+    --mana-r: #e8664a;
+    --mana-g: #3c9e72;
+    --mana-c: #9c948a;
   }
 }
 
@@ -50,6 +91,12 @@
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-contrast: var(--accent-contrast);
+  --color-mana-w: var(--mana-w);
+  --color-mana-u: var(--mana-u);
+  --color-mana-b: var(--mana-b);
+  --color-mana-r: var(--mana-r);
+  --color-mana-g: var(--mana-g);
+  --color-mana-c: var(--mana-c);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
@@ -61,4 +108,30 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+ * Skeleton placeholders.
+ *
+ * A slow pulse rather than a travelling shimmer: the point is "this is
+ * coming", and a gradient sweeping across a dozen rows draws more attention
+ * than the content it stands in for. Under prefers-reduced-motion it holds
+ * still and simply reads as a blank block, which is still the right message.
+ */
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.skeleton {
+  background: var(--surface-muted);
+  border-radius: 0.25rem;
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
 }

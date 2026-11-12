@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { ManaCost } from "@/components/mana-cost";
 import type { CardSearchResult } from "@/lib/cards/search";
 
 const DEBOUNCE_MS = 150;
@@ -174,11 +175,7 @@ export function CardSearch() {
                   {result.typeLine ?? ""}
                 </span>
               </span>
-              {result.manaCost ? (
-                <span className="shrink-0 font-mono text-xs text-muted">
-                  {result.manaCost}
-                </span>
-              ) : null}
+              <ManaCost cost={result.manaCost} size={13} className="shrink-0" />
               <span className="shrink-0 text-xs text-muted">
                 {result.printingCount}{" "}
                 {result.printingCount === 1 ? "printing" : "printings"}

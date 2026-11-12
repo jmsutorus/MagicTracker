@@ -1,7 +1,12 @@
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
-import type { CardCondition, CardFinish, LocationKind } from "@/lib/collection/constants";
+import type {
+  CardCondition,
+  CardFinish,
+  CollectionSort,
+  LocationKind,
+} from "@/lib/collection/constants";
 
 export type LocationRow = {
   id: string;
@@ -62,6 +67,11 @@ export type CollectionRow = {
   rarity: string;
   manaCost: string | null;
   typeLine: string | null;
+  /**
+   * The latest snapshot price for this printing and finish, for one copy.
+   * Null when the weekly job has never priced it.
+   */
+  priceCents: number | null;
 };
 
 export type BrowseFilters = {
@@ -70,6 +80,7 @@ export type BrowseFilters = {
   locationId?: string;
   finish?: string;
   rarity?: string;
+  sort?: CollectionSort;
   limit?: number;
   offset?: number;
 };
@@ -317,6 +328,25 @@ export async function listCollectedSets(): Promise<
   return rows;
 }
 
+/**
+ * What one copy of this row is worth.
+ *
+ * The price of a card depends on its finish — a foil and a nonfoil of the
+ * same printing are different money — and the numbers live on `printings`,
+ * refreshed by the card ingest. `price_snapshots` is the *history* behind
+ * the value chart and is deliberately not used here: it only has rows for
+ * dates the weekly job ran, so a card added yesterday would read as
+ * unpriced. Same CASE as lib/completion/queries.ts, for the same reason.
+ */
+const PRICE_FOR_FINISH = sql`
+  CASE c.finish
+    WHEN 'nonfoil' THEN p.usd_cents
+    WHEN 'foil'    THEN p.usd_foil_cents
+    WHEN 'etched'  THEN p.usd_etched_cents
+    ELSE LEAST(p.usd_cents, p.usd_foil_cents, p.usd_etched_cents)
+  END
+`;
+
 export async function browseCollection(
   filters: BrowseFilters = {},
 ): Promise<BrowseResult> {
@@ -341,6 +371,42 @@ export async function browseCollection(
   ];
   const where = sql.join(conditions, sql` `);
 
+  /*
+   * Rarity has an order, and it is not alphabetical: "mythic" before "rare"
+   * before "uncommon" is the whole point of sorting by it, and `ORDER BY
+   * rarity` gives bonus, common, mythic, rare, special, uncommon — which is
+   * worse than no sort at all.
+   */
+  const rarityRank = sql`array_position(
+    ARRAY['mythic','rare','special','bonus','uncommon','common']::text[], p.rarity
+  )`;
+
+  /*
+   * One hand-written fragment per allowed sort. Nothing from the query
+   * string reaches the ORDER BY — `sort` is narrowed to the union by
+   * isCollectionSort before it arrives, and anything else lands on the
+   * default. Each ends in a stable tiebreak so paging cannot show the same
+   * row twice.
+   */
+  const tiebreak = sql`p.name ASC, p.set_code ASC, c.id ASC`;
+  const orderBy = {
+    name: sql`p.name ASC, p.set_code ASC, p.collector_number_num ASC NULLS LAST, c.finish ASC, c.condition ASC`,
+    "name-desc": sql`p.name DESC, ${tiebreak}`,
+    set: sql`p.set_code ASC, p.collector_number_num ASC NULLS LAST, ${tiebreak}`,
+    quantity: sql`c.quantity DESC, ${tiebreak}`,
+    rarity: sql`${rarityRank} ASC NULLS LAST, ${tiebreak}`,
+    /*
+     * By the value of the *stack*, not of one card: ten copies at a dollar
+     * is more of the collection's worth than one at five, and "most
+     * valuable" on a collection page means what is worth most.
+     *
+     * Nulls last — an unpriced card is unknown, not worthless, so it does
+     * not belong at the top of the list pretending to be $0.
+     */
+    value: sql`(${PRICE_FOR_FINISH}) * c.quantity DESC NULLS LAST, ${tiebreak}`,
+    added: sql`c.created_at DESC, ${tiebreak}`,
+  }[filters.sort ?? "name"];
+
   const { rows } = await db.execute<{
     item_id: string;
     quantity: number;
@@ -357,6 +423,7 @@ export async function browseCollection(
     rarity: string;
     mana_cost: string | null;
     type_line: string | null;
+    price_cents: number | null;
   }>(sql`
     SELECT c.id::text          AS item_id,
            c.quantity,
@@ -372,18 +439,15 @@ export async function browseCollection(
            p.collector_number,
            p.rarity,
            o.mana_cost,
-           o.type_line
+           o.type_line,
+           ${PRICE_FOR_FINISH} AS price_cents
       FROM collection_items c
       JOIN printings p    ON p.scryfall_id = c.printing_id
       JOIN sets s         ON s.code = p.set_code
       JOIN locations l    ON l.id = c.location_id
       JOIN oracle_cards o ON o.oracle_id = p.oracle_id
      WHERE true ${where}
-     ORDER BY p.name ASC,
-              p.set_code ASC,
-              p.collector_number_num ASC NULLS LAST,
-              c.finish ASC,
-              c.condition ASC
+     ORDER BY ${orderBy}
      LIMIT ${limit} OFFSET ${offset}
   `);
 
@@ -415,6 +479,7 @@ export async function browseCollection(
       rarity: r.rarity,
       manaCost: r.mana_cost,
       typeLine: r.type_line,
+      priceCents: r.price_cents,
     })),
     matchingRows: countRows[0]?.matching_rows ?? 0,
     matchingCopies: countRows[0]?.matching_copies ?? 0,

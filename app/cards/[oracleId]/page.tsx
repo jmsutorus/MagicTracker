@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
 import { CardPurchaseLinks } from "@/components/card-purchase-links";
+import { ColorIdentity, ManaCost } from "@/components/mana-cost";
 import { PriceHistory } from "@/components/price-history";
 import { WishButton } from "@/components/wish-button";
 import { requireUser } from "@/lib/auth/dal";
@@ -104,11 +105,9 @@ export default async function CardDetailPage({
               {card.name}
             </h1>
 
-            <p className="mt-1 text-sm text-muted">
-              {card.typeLine}
-              {card.manaCost ? (
-                <span className="ml-2 font-mono">{card.manaCost}</span>
-              ) : null}
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted">
+              <span>{card.typeLine}</span>
+              <ManaCost cost={card.manaCost} size={16} />
             </p>
 
             {card.oracleText ? (
@@ -122,10 +121,8 @@ export default async function CardDetailPage({
                 <dt className="text-xs uppercase tracking-wide text-muted">
                   Color identity
                 </dt>
-                <dd className="font-mono">
-                  {card.colorIdentity.length > 0
-                    ? card.colorIdentity.join("")
-                    : "colorless"}
+                <dd>
+                  <ColorIdentity colors={card.colorIdentity} />
                 </dd>
               </div>
               <div>

@@ -100,3 +100,39 @@ export const DEFAULT_COMPLETION_SCOPE: CompletionScope = {
   includeExtras: false,
   finish: "any",
 };
+
+/**
+ * How a browsed collection is ordered.
+ *
+ * A fixed set rather than a column name from the query string: this value
+ * reaches an ORDER BY, and the one thing that must never happen is a
+ * caller interpolating whatever arrived. Every option here maps to a
+ * hand-written fragment below.
+ */
+export const COLLECTION_SORTS = [
+  "name",
+  "name-desc",
+  "set",
+  "quantity",
+  "rarity",
+  "value",
+  "added",
+] as const;
+export type CollectionSort = (typeof COLLECTION_SORTS)[number];
+
+export const COLLECTION_SORT_LABELS: Record<CollectionSort, string> = {
+  name: "Name A–Z",
+  "name-desc": "Name Z–A",
+  set: "Set, then number",
+  quantity: "Most copies",
+  rarity: "Rarest first",
+  value: "Most valuable",
+  added: "Recently added",
+};
+
+export function isCollectionSort(value: unknown): value is CollectionSort {
+  return (
+    typeof value === "string" &&
+    (COLLECTION_SORTS as readonly string[]).includes(value)
+  );
+}

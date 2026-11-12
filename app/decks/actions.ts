@@ -10,8 +10,10 @@ import {
   deleteDeck,
   removeDeckCard,
   renameDeck,
+  renameDeckCategory,
   setDeckAllocation,
   setDeckCardBoard,
+  setDeckCardCategory,
   setDeckLocation,
   setDeckNotes,
   setDeckTargetSize,
@@ -125,6 +127,28 @@ export async function setDeckCardBoardAction(
 ) {
   await requireUser();
   const result = await setDeckCardBoard(deckCardId, board);
+  if (result.ok) revalidateDeck(deckId);
+  return result;
+}
+
+export async function setDeckCardCategoryAction(
+  deckCardId: string,
+  category: string | null,
+  deckId: string,
+) {
+  await requireUser();
+  const result = await setDeckCardCategory(deckCardId, category);
+  if (result.ok) revalidateDeck(deckId);
+  return result;
+}
+
+export async function renameDeckCategoryAction(
+  deckId: string,
+  from: string,
+  to: string | null,
+) {
+  await requireUser();
+  const result = await renameDeckCategory(deckId, from, to);
   if (result.ok) revalidateDeck(deckId);
   return result;
 }

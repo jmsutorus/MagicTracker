@@ -301,6 +301,140 @@ export async function moveItem(
   }
 }
 
+/** How many rows one bulk action may touch, so a bad request stays cheap. */
+export const MAX_BULK_ITEMS = 500;
+
+export type BulkResult = { ok: true; affected: number } | MutationError;
+
+/**
+ * Validates a list of item ids arriving from a server action.
+ *
+ * Deduplicated, because the same id twice in a move would merge a row with
+ * itself and double-count the report.
+ */
+function checkItemIds(
+  itemIds: unknown,
+): { ok: true; ids: string[] } | MutationError {
+  if (!Array.isArray(itemIds) || itemIds.length === 0) {
+    return { ok: false, error: "Nothing selected." };
+  }
+  if (itemIds.length > MAX_BULK_ITEMS) {
+    return {
+      ok: false,
+      error: `That is more than ${MAX_BULK_ITEMS} rows at once.`,
+    };
+  }
+  const ids = [...new Set(itemIds)];
+  for (const id of ids) {
+    if (typeof id !== "string" || !UUID_RE.test(id)) {
+      return { ok: false, error: "Unknown item." };
+    }
+  }
+  return { ok: true, ids: ids as string[] };
+}
+
+/**
+ * Moves many rows to one location in a single statement.
+ *
+ * Not a loop over `moveItem`: re-filing a binder is a hundred rows, and a
+ * hundred round trips can half-fail and leave the collection in a state
+ * nobody asked for. One statement either moves them all or moves none.
+ *
+ * The merge case is the reason this is not a plain UPDATE. Moving a row into
+ * a location that already holds the same printing in the same finish and
+ * condition has to *add* to that row, because the unique index forbids two —
+ * so the move is "fold into the existing row and delete this one", and only
+ * the rows with nothing to fold into are relocated in place.
+ */
+export async function moveItems(
+  itemIds: string[],
+  locationId: string,
+): Promise<BulkResult> {
+  const checked = checkItemIds(itemIds);
+  if (!checked.ok) return checked;
+  if (!UUID_RE.test(locationId)) {
+    return { ok: false, error: "Unknown location." };
+  }
+
+  const db = getDb();
+  try {
+    const { rows } = await db.execute<{ affected: number }>(sql`
+      WITH source AS (
+        SELECT * FROM collection_items
+         WHERE id = ANY(${checked.ids}::uuid[])
+           AND location_id <> ${locationId}::uuid
+      ),
+      /*
+       * Sum first: two selected rows can be the same card in the same
+       * finish heading for the same destination, and folding them one at a
+       * time would lose one of them to the unique index.
+       */
+      folded AS (
+        SELECT printing_id, finish, condition, sum(quantity)::int AS quantity
+          FROM source
+         GROUP BY printing_id, finish, condition
+      ),
+      merged AS (
+        UPDATE collection_items t
+           SET quantity   = t.quantity + folded.quantity,
+               updated_at = now()
+          FROM folded
+         WHERE t.printing_id = folded.printing_id
+           AND t.finish      = folded.finish
+           AND t.condition   = folded.condition
+           AND t.location_id = ${locationId}::uuid
+        RETURNING t.printing_id, t.finish, t.condition
+      ),
+      dropped AS (
+        DELETE FROM collection_items c
+         USING merged m
+         WHERE c.id IN (SELECT id FROM source)
+           AND c.printing_id = m.printing_id
+           AND c.finish      = m.finish
+           AND c.condition   = m.condition
+        RETURNING c.id
+      ),
+      relocated AS (
+        UPDATE collection_items
+           SET location_id = ${locationId}::uuid,
+               updated_at  = now()
+         WHERE id IN (SELECT id FROM source)
+           AND id NOT IN (SELECT id FROM dropped)
+        RETURNING id
+      )
+      SELECT (
+        (SELECT count(*) FROM dropped) + (SELECT count(*) FROM relocated)
+      )::int AS affected
+    `);
+
+    return { ok: true, affected: rows[0]?.affected ?? 0 };
+  } catch (error) {
+    return { ok: false, error: describeDbError(error, "move those cards") };
+  }
+}
+
+/** Deletes many rows outright. Copies, not one each. */
+export async function removeItems(itemIds: string[]): Promise<BulkResult> {
+  const checked = checkItemIds(itemIds);
+  if (!checked.ok) return checked;
+
+  const db = getDb();
+  try {
+    const { rows } = await db.execute<{ affected: number }>(sql`
+      WITH dropped AS (
+        DELETE FROM collection_items
+         WHERE id = ANY(${checked.ids}::uuid[])
+        RETURNING id
+      )
+      SELECT count(*)::int AS affected FROM dropped
+    `);
+
+    return { ok: true, affected: rows[0]?.affected ?? 0 };
+  } catch (error) {
+    return { ok: false, error: describeDbError(error, "remove those cards") };
+  }
+}
+
 export type LocationResult =
   | { ok: true; id: string; name: string }
   | MutationError;

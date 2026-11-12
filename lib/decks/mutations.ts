@@ -9,6 +9,7 @@ import {
   MAX_DECK_CARD_QUANTITY,
   MAX_DECK_NAME_LENGTH,
   MIN_CUBE_SIZE,
+  cleanCategory,
   isDeckFormat,
   type DeckBoard,
   type DeckFormat,
@@ -499,6 +500,90 @@ export async function setDeckCardBoard(
     return { ok: true };
   } catch (error) {
     return { ok: false, error: describeDbError(error, "move that card") };
+  }
+}
+
+/**
+ * Files a card under a category, or clears it.
+ *
+ * Unlike a board change this cannot collide: a category is not part of the
+ * row's identity (`deck_cards_identity_key` is deck + board + oracle id), so
+ * there is never a second row to merge with and the whole thing is one
+ * UPDATE. Moving a card between categories therefore cannot lose copies,
+ * which is what makes it safe to wire to a drag.
+ */
+export async function setDeckCardCategory(
+  deckCardId: string,
+  category: string | null,
+): Promise<DeckResult> {
+  if (!UUID_RE.test(deckCardId)) return { ok: false, error: "Unknown card." };
+
+  /*
+   * Normalised here, not in the browser. A server action is a public
+   * endpoint, so "   " has to become NULL on this side or it lands in the
+   * column as a category that looks empty and groups separately — and the
+   * CHECK would reject it, which is a 500 where a tidy null was meant.
+   */
+  const cleaned = cleanCategory(category);
+
+  const db = getDb();
+  try {
+    const { rows } = await db.execute<{ deck_id: string }>(sql`
+      UPDATE deck_cards
+         SET category = ${cleaned}
+       WHERE id = ${deckCardId}::uuid
+      RETURNING deck_id::text AS deck_id
+    `);
+
+    const row = rows[0];
+    if (!row) return { ok: false, error: "That card is no longer in the deck." };
+
+    await db.execute(touch(row.deck_id));
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: describeDbError(error, "file that card") };
+  }
+}
+
+/**
+ * Renames a category across one deck, or clears it from every card.
+ *
+ * The reason this exists rather than making the UI update each card: a
+ * category is free text with no row of its own, so "rename Removal to
+ * Interaction" is genuinely a bulk UPDATE, and doing it card by card from
+ * the browser would be N round trips that can half-fail and leave a deck
+ * with two spellings of the same heading.
+ */
+export async function renameDeckCategory(
+  deckId: string,
+  from: string,
+  to: string | null,
+): Promise<{ ok: true; cards: number } | DeckError> {
+  if (!UUID_RE.test(deckId)) return { ok: false, error: "Unknown deck." };
+
+  const source = cleanCategory(from);
+  if (source === null) {
+    return { ok: false, error: "Pick a category to rename." };
+  }
+  const target = cleanCategory(to);
+
+  const db = getDb();
+  try {
+    const { rows } = await db.execute<{ cards: number }>(sql`
+      WITH updated AS (
+        UPDATE deck_cards
+           SET category = ${target}
+         WHERE deck_id = ${deckId}::uuid
+           AND category = ${source}
+        RETURNING id
+      )
+      SELECT count(*)::int AS cards FROM updated
+    `);
+
+    await db.execute(touch(deckId));
+    return { ok: true, cards: rows[0]?.cards ?? 0 };
+  } catch (error) {
+    return { ok: false, error: describeDbError(error, "rename that category") };
   }
 }
 
