@@ -242,6 +242,7 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run prices:smoke` | End-to-end check of the price layer against the real database and Scryfall |
 | `npm run polish:smoke` | End-to-end check of share links and the export against the real database |
 | `npm run cube:smoke` | End-to-end check of cube decks against the real database |
+| `npm run standard:smoke` | End-to-end check of Standard decks against the real database |
 | `npm run wishlist:smoke` | End-to-end check of the wishlist, cost-to-finish and price history |
 | `scripts/deploy-ingest-job.ps1` | Create/update the scheduled ingest in GCP (idempotent) |
 
@@ -407,8 +408,9 @@ Sol Ring that was in the box before the add is still there afterwards.
 
 ## Decks
 
-`/decks` builds Commander decks and cubes and tells you what is left to buy.
-Sealed is still not a format here — a sealed pool is not a list you curate.
+`/decks` builds Commander decks, Standard decks and cubes, and tells you what
+is left to buy. Sealed is still not a format here — a sealed pool is not a
+list you curate.
 
 **The command zone is a board, not a column.** PLAN.md §5 sketched
 `decks.commander_printing_id`, but Commander legally allows two commanders
@@ -455,6 +457,49 @@ Nothing stops you *storing* an illegal deck. A deck mid-edit is illegal almost
 all of the time, so the rules engine reports rather than refuses; the legality
 panel is the verdict and the tables are just storage.
 
+### Standard
+
+A Standard deck is `format = 'standard'`: same tables, same ownership,
+allocation, buy list and share link, a different report
+(`lib/decks/standard.ts`). Pick the format when you create the deck, or when
+you paste a list into a new one.
+
+| | |
+|---|---|
+| Size | **60 or more.** A floor, not a size — a 63-card deck is legal, and the deck list prints its own number rather than "63 / 60", which would read as two over a limit |
+| Sideboard | Up to 15, or none. The only place in this app where a bigger number is the failure |
+| Copies | Four of any one card — **across the deck and the sideboard together** |
+| The card pool | `legalities->>'standard'`, refreshed by the weekly card ingest, so a rotation or a ban arrives on its own with no list to keep and no code to change |
+| The command zone | Standard has none. Cards left in one still count, and the report asks you to move them rather than hiding a row you would never find |
+| Size storage | `decks.target_size` stays null. 60 is the rule and there is no maximum, so no number a row could hold would be anything but redundant or wrong |
+
+**The four-copy rule is why the sideboard is a board and not a maybeboard.**
+Four Llanowar Elves in the deck and two in the sideboard is six copies and is
+illegal. `deck_cards` keys on (deck, **board**, card), so those are two rows
+by design and a per-row check — the obvious one to write — passes that deck
+without a word. `checkStandardDeck` sums copies per card across every counted
+board, which is the only version of the rule that is true. The maybeboard,
+which counts toward nothing, stays out of it.
+
+**Each deck is judged by its own legality column.** A Standard deck's rows
+carry Standard legality and a Commander deck's carry Commander's, chosen from
+`legalityKeyFor` in one place and selected per query — a cube gets a real
+`NULL`, because "this card is banned" is not a fact about a cube. One
+hard-coded column would have put a red *not legal* badge on every perfectly
+good Standard card in the search box.
+
+**A pasted sideboard lands in the sideboard**, but only where one exists.
+`sectionToBoard` takes the destination's format: a "Sideboard" heading means
+the sideboard in Standard and the maybeboard in Commander or a cube, where
+dropping the lines would silently lose cards from a paste and counting them
+would make every imported 60-card list illegal by fifteen.
+
+**Four copies of anything is not four copies of everything.** Basic lands and
+"a deck can have any number of cards named ~" are exempt by the same function
+the Commander singleton check uses, read off the card; and a card that prints
+its own number — *up to seven cards named Seven Dwarves* — gets seven, not
+four, because the card outranks the format.
+
 ### Cubes
 
 A cube is a deck with `format = 'cube'`: same tables, same ownership and
@@ -466,10 +511,10 @@ more often than it is typed.
 stay inside, and no size the rules impose, so `lib/decks/cube.ts` reports
 rather than rules: the size against *your* target, and the colour, mana-curve
 and card-type spread — the three distributions a cube owner actually reads.
-`getDeck` returns a tagged verdict (`{ kind: "commander" | "cube", report }`)
-so a template cannot reach for a Commander verdict on something that has
-none, and so the inapplicable Commander checks are *absent* rather than
-suppressed.
+`getDeck` returns a tagged verdict
+(`{ kind: "commander" | "standard" | "cube", report }`) so a template cannot
+reach for a Commander verdict on something that has none, and so the
+inapplicable Commander checks are *absent* rather than suppressed.
 
 | | |
 |---|---|
@@ -479,7 +524,7 @@ suppressed.
 | The command zone | A cube has none. Cards left in one still count, and the report asks you to move them rather than hiding a row you would never find |
 | Colours | Bucketed by the card's own `colors`, not its colour identity — a cube's balance is about what you cast with which mana, so Bloodghast is black, not black-red |
 | Curve | Lands excluded, 7+ collected, percentages of the nonland cards |
-| Format changes | Not offered. The two formats mean different things about every card in the list, so switching one would silently reinterpret the whole deck |
+| Format changes | Not offered. The three formats mean different things about every card in the list, so switching one would silently reinterpret the whole deck |
 
 **The bars are one hue, not five.** WUBRG as swatches is the obvious idea and
 the wrong one: yellow-white and black marks fail the contrast and lightness

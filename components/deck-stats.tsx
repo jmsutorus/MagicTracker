@@ -58,11 +58,18 @@ function isLand(typeLine: string | null): boolean {
 
 export function DeckStats({ cards }: { cards: DeckCardRow[] }) {
   /*
-   * Counted boards only, and by copies rather than rows: a deck with four
-   * Lightning Bolts has four cards at one mana, and a curve that counted it
-   * once would understate every repeated card in a 60-card deck.
+   * The deck proper, by copies rather than rows: a deck with four Lightning
+   * Bolts has four cards at one mana, and a curve that counted it once would
+   * understate every repeated card in a 60-card deck.
+   *
+   * The sideboard is left out along with the maybeboard, which every
+   * deckbuilder does and for the same reason the curve excludes lands: a
+   * sideboard is fifteen cards chosen against other decks, and folding them
+   * into the curve describes a deck nobody ever shuffles up.
    */
-  const counted = cards.filter((c) => c.board !== "maybe");
+  const counted = cards.filter(
+    (c) => c.board !== "maybe" && c.board !== "side",
+  );
   const totalCopies = counted.reduce((n, c) => n + c.quantity, 0);
 
   if (totalCopies === 0) return null;

@@ -35,9 +35,24 @@ export default async function SharedDeckPage({
 
   const commander =
     deck.verdict.kind === "commander" ? deck.verdict.report : null;
-  const errors = commander
-    ? commander.problems.filter((p) => p.severity === "error")
+
+  /*
+   * Commander and Standard both pass a verdict a visitor can act on — "this
+   * list is legal" is a fact about the deck, not about its owner — and a
+   * cube has none to pass. Both reports carry `legal` and `problems`, which
+   * is all this page reads off either.
+   */
+  const judged = deck.verdict.kind === "cube" ? null : deck.verdict.report;
+  const errors = judged
+    ? judged.problems.filter((p) => p.severity === "error")
     : [];
+
+  /* Every copy in the list, sideboard included — the headline is about what
+     was shared, and the verdict's own count is the sixty. */
+  const copies = deck.boards.reduce(
+    (total, board) => total + board.cards.reduce((n, c) => n + c.quantity, 0),
+    0,
+  );
 
   return (
     <div className="flex flex-1 flex-col">
@@ -61,14 +76,13 @@ export default async function SharedDeckPage({
         </div>
 
         <p className="mt-2 text-sm text-muted">
-          {deck.verdict.report.cardCount} card
-          {deck.verdict.report.cardCount === 1 ? "" : "s"} ·{" "}
+          {copies} card{copies === 1 ? "" : "s"} ·{" "}
           {DECK_FORMAT_LABELS[deck.format]}
-          {commander ? (
+          {judged ? (
             <>
               {" · "}
-              <span className={commander.legal ? "text-ok" : "text-bad"}>
-                {commander.legal ? "legal" : "not legal"}
+              <span className={judged.legal ? "text-ok" : "text-bad"}>
+                {judged.legal ? "legal" : "not legal"}
               </span>
             </>
           ) : null}{" "}

@@ -11,6 +11,8 @@ import { getDb } from "@/lib/db";
 import {
   DECK_BOARDS,
   MAX_DECK_CARD_QUANTITY,
+  boardInFormat,
+  isDeckFormat,
   type DeckBoard,
 } from "@/lib/decks/constants";
 import {
@@ -422,13 +424,16 @@ async function applyToDeck(
 
   const db = getDb();
 
-  const { rows: deckRows } = await db.execute<{ name: string }>(sql`
-    SELECT name FROM decks WHERE id = ${deckId}::uuid
+  const { rows: deckRows } = await db.execute<{
+    name: string;
+    format: string;
+  }>(sql`
+    SELECT name, format FROM decks WHERE id = ${deckId}::uuid
   `);
   if (deckRows.length === 0) return { ok: false, error: "Unknown deck." };
 
   const { rows } = await db.execute<{ cards: number; copies: number }>(
-    deckInsert(lines, sql`${deckId}::uuid`),
+    deckInsert(forFormat(lines, deckRows[0].format), sql`${deckId}::uuid`),
   );
 
   await db.execute(
@@ -475,7 +480,7 @@ async function applyToNewDeck(
     if (!deck) return { ok: false, error: "The deck was not created." };
 
     const { rows } = await tx.execute<{ cards: number; copies: number }>(
-      deckInsert(lines, sql`${deck.id}::uuid`),
+      deckInsert(forFormat(lines, shape.format), sql`${deck.id}::uuid`),
     );
 
     return {
@@ -486,6 +491,25 @@ async function applyToNewDeck(
       deckName: deck.name,
     };
   });
+}
+
+/**
+ * Re-files any line whose board the destination format does not have.
+ *
+ * The paste screen already sends the right board — it knows the
+ * destination's format — but an apply is a server action, which is a public
+ * endpoint, and the CHECK on `deck_cards.board` is the union of every
+ * format's boards and so cannot refuse a sideboard on a Commander deck.
+ * `boardInFormat` is the same rule `sectionToBoard` maps with, so a crafted
+ * payload lands exactly where an honest one would.
+ */
+function forFormat(lines: CleanLine[], rawFormat: string): CleanLine[] {
+  const format = isDeckFormat(rawFormat) ? rawFormat : "commander";
+  return lines.map((line) =>
+    line.board === boardInFormat(line.board, format)
+      ? line
+      : { ...line, board: boardInFormat(line.board, format) },
+  );
 }
 
 /**

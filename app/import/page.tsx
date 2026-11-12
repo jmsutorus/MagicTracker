@@ -33,7 +33,11 @@ export default async function ImportPage() {
         <div className="mt-6">
           <ImportPaste
             locations={locations.map((l) => ({ id: l.id, name: l.name }))}
-            decks={decks.map((d) => ({ id: d.id, name: d.name }))}
+            decks={decks.map((d) => ({
+              id: d.id,
+              name: d.name,
+              format: d.format,
+            }))}
             defaultLocationId={defaultLocation?.id ?? null}
           />
         </div>

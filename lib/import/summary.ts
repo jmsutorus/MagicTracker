@@ -1,3 +1,5 @@
+import type { DeckFormat } from "@/lib/decks/constants";
+
 import { sectionToBoard, type ImportSection } from "./constants";
 
 /**
@@ -29,7 +31,16 @@ export type WantedTotals = {
   missing: { name: string; need: number }[];
 };
 
-export function summarizeWanted(rows: WantedRow[]): WantedTotals {
+export function summarizeWanted(
+  rows: WantedRow[],
+  /*
+   * The format the list is headed for, because it decides whether a pasted
+   * sideboard is part of what you need to own. It is, in Standard. Defaulted
+   * so the server's first pass — made before any destination is chosen —
+   * answers the question every paste used to ask.
+   */
+  format: DeckFormat = "commander",
+): WantedTotals {
   let copies = 0;
 
   /** Card → how many are wanted on the counted boards, and how many are free. */
@@ -42,7 +53,7 @@ export function summarizeWanted(rows: WantedRow[]): WantedTotals {
     copies += row.quantity;
     if (row.card === null) continue;
     // The maybeboard counts toward nothing, here as everywhere else.
-    if (sectionToBoard(row.section) === "maybe") continue;
+    if (sectionToBoard(row.section, format) === "maybe") continue;
 
     const existing = counted.get(row.card.oracleId);
     if (existing) existing.wanted += row.quantity;

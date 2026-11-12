@@ -1,10 +1,16 @@
+import {
+  boardInFormat,
+  type DeckBoard,
+  type DeckFormat,
+} from "@/lib/decks/constants";
+
 /**
  * Import domain values, shared by the server and the browser.
  *
- * Zero imports, for the same reason lib/collection/constants.ts and
- * lib/decks/constants.ts have none: the paste screen is a client component,
- * and reaching these through a module that touches drizzle would pull the ORM
- * into the browser bundle.
+ * One import, and deliberately only that one: lib/decks/constants.ts is
+ * itself import-free for the same reason this file nearly is — the paste
+ * screen is a client component, and reaching these through a module that
+ * touches drizzle would pull the ORM into the browser bundle.
  */
 
 /**
@@ -23,10 +29,10 @@ export type ImportTarget = (typeof IMPORT_TARGETS)[number];
  * The sections a pasted list can divide itself into.
  *
  * These are the exporters' words, not this app's. `sectionToBoard` below maps
- * them onto the three boards `deck_cards` actually has, which keeps the
- * parser honest about what it read: a line under "Sideboard" parsed as a
- * sideboard line even though Commander has no sideboard, and the mapping —
- * not the parser — decides that the maybeboard is where it lands.
+ * them onto the boards `deck_cards` actually has, which keeps the parser
+ * honest about what it read: a line under "Sideboard" is parsed as a
+ * sideboard line whatever the destination turns out to be, and the mapping —
+ * not the parser — decides where that lands.
  */
 export const IMPORT_SECTIONS = [
   "commander",
@@ -36,22 +42,38 @@ export const IMPORT_SECTIONS = [
 ] as const;
 export type ImportSection = (typeof IMPORT_SECTIONS)[number];
 
-/** commander | main | maybe — the boards in lib/decks/constants.ts. */
+/**
+ * Which board a parsed section lands on, in a deck of this format.
+ *
+ * Format-dependent for exactly one section, and that one matters: a
+ * sideboard is a real part of a Standard deck and nothing at all in
+ * Commander or a cube.
+ *
+ * In a format that has one, a pasted sideboard lands in the sideboard —
+ * which is the difference between importing a Standard decklist and
+ * importing three-quarters of one. In a format that does not, those lines go
+ * to the maybeboard rather than being dropped: dropping them would silently
+ * lose cards from a paste, and counting them toward the 100 would make every
+ * imported 60-card list illegal for a reason the user did not choose.
+ *
+ * The command zone is *not* conditional. A Commander list pasted into a cube
+ * or a Standard deck keeps its commanders where the paste said they were,
+ * and the deck's own report explains the stranded rows — which is better
+ * than quietly refiling somebody's cards and saying nothing.
+ */
 export function sectionToBoard(
   section: ImportSection,
-): "commander" | "main" | "maybe" {
+  format: DeckFormat = "commander",
+): DeckBoard {
   switch (section) {
     case "commander":
       return "commander";
     case "main":
       return "main";
-    /*
-     * Commander has no sideboard. Dropping those lines would silently lose
-     * cards from a paste, and counting them toward the 100 would make every
-     * imported 60-card list illegal for a reason the user did not choose, so
-     * they land on the board that counts toward nothing.
-     */
+    // `boardInFormat` is the one place that decides where a board a format
+    // does not have ends up, so this cannot disagree with the import write.
     case "sideboard":
+      return boardInFormat("side", format);
     case "maybeboard":
       return "maybe";
   }

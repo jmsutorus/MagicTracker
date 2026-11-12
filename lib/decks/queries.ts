@@ -3,8 +3,11 @@ import { sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 
 import {
-  COUNTED_BOARDS,
+  BOARD_ORDER,
+  DECK_FORMATS,
+  countedBoardsFor,
   isDeckFormat,
+  legalityKeyFor,
   targetSizeFor,
   type DeckBoard,
   type DeckFormat,
@@ -15,6 +18,52 @@ import {
   type LegalityCard,
   type LegalityReport,
 } from "./legality";
+import {
+  checkStandardDeck,
+  type StandardCard,
+  type StandardReport,
+} from "./standard";
+
+/**
+ * `BOARD_ORDER` as a SQL array, for the one sort every decklist query uses.
+ *
+ * Built from the list in lib/decks/constants.ts rather than written out in
+ * each statement: this app has three queries that order a decklist by board,
+ * and three hand-written copies of the array is how `side` gets added to one
+ * of them and silently sorts last in the other two. `sql.raw` is safe here
+ * and necessary — the values are a closed set of identifiers from our own
+ * source, and a bound parameter cannot be an array literal in this position.
+ */
+export const BOARD_ORDER_SQL = sql.raw(
+  `ARRAY[${BOARD_ORDER.map((board) => `'${board}'`).join(", ")}]::text[]`,
+);
+
+/**
+ * The card legality column this format is judged by, or NULL for a format
+ * with no ban list at all.
+ *
+ * A cube gets a real NULL rather than Commander's column quietly reused,
+ * because "this card is banned" is not a fact about a cube.
+ */
+export function legalityColumnFor(format: DeckFormat): SQL {
+  const key = legalityKeyFor(format);
+  return key === null ? sql`NULL::text` : sql`o.legalities->>${key}`;
+}
+
+/**
+ * The same choice, made in SQL from the deck's own row.
+ *
+ * `searchDeckCards` has a deck id and no format, and the search box is the
+ * keyboard-first path — a second round trip to learn the format would cost a
+ * request on every debounce. The CASE is generated from `legalityKeyFor`
+ * rather than written out, so the mapping still exists in exactly one place;
+ * a format that maps to null is simply absent and the CASE yields NULL.
+ */
+const LEGALITY_KEY_BY_DECK_FORMAT = sql.raw(
+  `CASE format ${DECK_FORMATS.filter((format) => legalityKeyFor(format))
+    .map((format) => `WHEN '${format}' THEN '${legalityKeyFor(format)}'`)
+    .join(" ")} END`,
+);
 
 /**
  * Reads for the deck pages.
@@ -62,12 +111,21 @@ export type DeckListRow = {
   id: string;
   name: string;
   format: DeckFormat;
-  /** What the list is measured against: 100, or the cube's own size. */
+  /** What the list is measured against: 100, 60 at least, or a cube's size. */
   targetSize: number;
   locationId: string | null;
   locationName: string | null;
-  /** Cards on the counted boards, commanders included. */
+  /** The deck proper: commanders included, sideboard not. */
   cardCount: number;
+  /**
+   * Copies in the sideboard, which only Standard has.
+   *
+   * Separate from `cardCount` because the sideboard is not part of the 60
+   * and printing 75 against a 60-card minimum would read as a deck that has
+   * gone wrong. It is still owned, claimed and bought like the rest, so it
+   * is counted in `ownedCopies` below.
+   */
+  sideboardCount: number;
   commanderNames: string[];
   colorIdentity: string[];
   /** Copies of the deck's cards owned, capped at what the deck needs. */
@@ -88,6 +146,7 @@ export async function listDecks(): Promise<DeckListRow[]> {
     location_id: string | null;
     location_name: string | null;
     card_count: number;
+    sideboard_count: number;
     commander_names: string[] | null;
     color_identity: string[] | null;
     owned_copies: number;
@@ -114,8 +173,13 @@ export async function listDecks(): Promise<DeckListRow[]> {
            l.name AS location_name,
            d.updated_at::text AS updated_at,
            coalesce((
-             SELECT sum(quantity) FROM base WHERE base.deck_id = d.id
+             SELECT sum(quantity) FROM base
+              WHERE base.deck_id = d.id AND base.board <> 'side'
            ), 0)::int AS card_count,
+           coalesce((
+             SELECT sum(quantity) FROM base
+              WHERE base.deck_id = d.id AND base.board = 'side'
+           ), 0)::int AS sideboard_count,
            coalesce((
              SELECT array_agg(o.name ORDER BY o.name)
                FROM deck_cards dc
@@ -151,6 +215,7 @@ export async function listDecks(): Promise<DeckListRow[]> {
       locationId: r.location_id,
       locationName: r.location_name,
       cardCount: r.card_count,
+      sideboardCount: r.sideboard_count,
       commanderNames: r.commander_names ?? [],
       colorIdentity: r.color_identity ?? [],
       ownedCopies: r.owned_copies,
@@ -182,7 +247,16 @@ export type DeckCardRow = {
   manaCost: string | null;
   cmc: number | null;
   colorIdentity: string[];
-  commanderLegality: string | null;
+  /**
+   * How this card stands in *this deck's* format — legal, banned, not_legal
+   * — or null for a format with no ban list.
+   *
+   * Named for the deck's format rather than for Commander's, because that is
+   * what it now holds: a Standard deck's rows carry Standard legality, and a
+   * row labelled `commanderLegality` reading "not_legal" on a perfectly good
+   * Standard card would be a badge nobody could explain.
+   */
+  formatLegality: string | null;
   /** The owner's heading for this card; null is "Uncategorized". */
   category: string | null;
   quantity: number;
@@ -222,7 +296,108 @@ export type DeckCardRow = {
  */
 export type DeckVerdict =
   | { kind: "commander"; report: LegalityReport }
+  | { kind: "standard"; report: StandardReport }
   | { kind: "cube"; report: CubeReport };
+
+/**
+ * The card facts any of the three verdicts is computed from.
+ *
+ * Column names rather than camelCase, because it is a row: both callers —
+ * the owner's deck page and the public share page — hand it the result of a
+ * query, and converting twice on the way to a pure function that wants three
+ * different subsets of it would be work done for nobody.
+ */
+export type VerdictRow = {
+  oracle_id: string;
+  name: string;
+  type_line: string | null;
+  oracle_text: string | null;
+  color_identity: string[] | null;
+  colors: string[] | null;
+  cmc: number | null;
+  keywords: string[] | null;
+  /** The legality column for *this deck's* format; null when it has none. */
+  format_legality: string | null;
+  board: string;
+  quantity: number;
+};
+
+/**
+ * Judges a deck by the rules of its own format.
+ *
+ * One function, called from both pages, because there were two copies of
+ * this branch the day a third format arrived and the second copy is the one
+ * that would have kept quietly returning a Commander verdict for a Standard
+ * deck — with every card in it reported as breaking singleton.
+ *
+ * The uncounted boards are dropped here rather than in the rule engines,
+ * which count every row they are given. A card on the maybeboard is not a
+ * card in the deck, and a board a format does not have — a command zone in
+ * Standard — is still counted so the deck's own report can explain the row
+ * instead of the total silently disagreeing with the list.
+ */
+export function buildVerdict(
+  format: DeckFormat,
+  targetSize: number,
+  rows: VerdictRow[],
+): DeckVerdict {
+  const counted = countedBoardsFor(format) as readonly string[];
+  const countedRows = rows.filter((r) => counted.includes(r.board));
+
+  if (format === "cube") {
+    return {
+      kind: "cube",
+      report: checkCube(
+        countedRows.map((r): CubeCard => ({
+          oracleId: r.oracle_id,
+          name: r.name,
+          typeLine: r.type_line,
+          oracleText: r.oracle_text,
+          colors: r.colors,
+          colorIdentity: r.color_identity ?? [],
+          cmc: r.cmc,
+          board: r.board as DeckBoard,
+          quantity: r.quantity,
+        })),
+        targetSize,
+      ),
+    };
+  }
+
+  if (format === "standard") {
+    return {
+      kind: "standard",
+      report: checkStandardDeck(
+        countedRows.map((r): StandardCard => ({
+          oracleId: r.oracle_id,
+          name: r.name,
+          typeLine: r.type_line,
+          oracleText: r.oracle_text,
+          standardLegality: r.format_legality,
+          board: r.board as DeckBoard,
+          quantity: r.quantity,
+        })),
+      ),
+    };
+  }
+
+  return {
+    kind: "commander",
+    report: checkCommanderDeck(
+      countedRows.map((r): LegalityCard => ({
+        oracleId: r.oracle_id,
+        name: r.name,
+        typeLine: r.type_line,
+        oracleText: r.oracle_text,
+        colorIdentity: r.color_identity ?? [],
+        keywords: r.keywords,
+        commanderLegality: r.format_legality,
+        board: r.board as DeckBoard,
+        quantity: r.quantity,
+      })),
+    ),
+  };
+}
 
 export type DeckDetail = {
   id: string;
@@ -267,6 +442,11 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
   const deck = deckRows[0];
   if (!deck) return null;
 
+  // Read before the cards are, because it decides which legality column the
+  // card query selects — a Standard deck's rows are judged by Standard.
+  const format = deckFormat(deck.format);
+  const targetSize = targetSizeFor(format, deck.target_size);
+
   const { rows } = await db.execute<{
     id: string;
     board: string;
@@ -279,7 +459,7 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
     colors: string[] | null;
     oracle_text: string | null;
     keywords: string[] | null;
-    commander_legality: string | null;
+    format_legality: string | null;
     category: string | null;
     quantity: number;
     is_allocated: boolean;
@@ -307,7 +487,7 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
            o.colors,
            o.oracle_text,
            o.keywords,
-           o.legalities->>'commander' AS commander_legality,
+           ${legalityColumnFor(format)} AS format_legality,
            base.category,
            base.quantity,
            base.is_allocated,
@@ -339,9 +519,7 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
       FROM base
       JOIN oracle_cards o ON o.oracle_id = base.oracle_id
       LEFT JOIN printings p ON p.scryfall_id = base.printing_id
-     ORDER BY array_position(
-                ARRAY['commander', 'main', 'maybe']::text[], base.board
-              ),
+     ORDER BY array_position(${BOARD_ORDER_SQL}, base.board),
               o.cmc NULLS FIRST,
               o.name
   `);
@@ -355,7 +533,7 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
     manaCost: r.mana_cost,
     cmc: r.cmc,
     colorIdentity: r.color_identity ?? [],
-    commanderLegality: r.commander_legality,
+    formatLegality: r.format_legality,
     category: r.category,
     quantity: r.quantity,
     isAllocated: r.is_allocated,
@@ -367,55 +545,7 @@ export async function getDeck(deckId: string): Promise<DeckDetail | null> {
     owned: r.owned,
   }));
 
-  const format = deckFormat(deck.format);
-  const targetSize = targetSizeFor(format, deck.target_size);
-
-  /*
-   * The maybeboard is filtered out here, not in the rule engine. Both
-   * checkCommanderDeck and checkCube count every row they are given — a card
-   * under consideration is not a card in the deck, and letting one count
-   * toward the size or the colour balance would make the answer wrong in a
-   * way the user never asked for.
-   */
-  const countedRows = rows.filter((r) =>
-    (COUNTED_BOARDS as readonly string[]).includes(r.board),
-  );
-
-  const verdict: DeckVerdict =
-    format === "cube"
-      ? {
-          kind: "cube",
-          report: checkCube(
-            countedRows.map((r): CubeCard => ({
-              oracleId: r.oracle_id,
-              name: r.name,
-              typeLine: r.type_line,
-              oracleText: r.oracle_text,
-              colors: r.colors,
-              colorIdentity: r.color_identity ?? [],
-              cmc: r.cmc,
-              board: r.board as DeckBoard,
-              quantity: r.quantity,
-            })),
-            targetSize,
-          ),
-        }
-      : {
-          kind: "commander",
-          report: checkCommanderDeck(
-            countedRows.map((r): LegalityCard => ({
-              oracleId: r.oracle_id,
-              name: r.name,
-              typeLine: r.type_line,
-              oracleText: r.oracle_text,
-              colorIdentity: r.color_identity ?? [],
-              keywords: r.keywords,
-              commanderLegality: r.commander_legality,
-              board: r.board as DeckBoard,
-              quantity: r.quantity,
-            })),
-          ),
-        };
+  const verdict = buildVerdict(format, targetSize, rows);
 
   const missing = cards
     .filter((c) => c.board !== "maybe" && c.available < c.quantity)
@@ -447,7 +577,8 @@ export type DeckCardCandidate = {
   typeLine: string | null;
   manaCost: string | null;
   colorIdentity: string[];
-  commanderLegality: string | null;
+  /** Legal, banned or not_legal in this deck's format; null for a cube. */
+  formatLegality: string | null;
   available: number;
   owned: number;
   /** True when this card is already on one of the deck's boards. */
@@ -482,7 +613,7 @@ export async function searchDeckCards(
     type_line: string | null;
     mana_cost: string | null;
     color_identity: string[] | null;
-    commander_legality: string | null;
+    format_legality: string | null;
     available: number;
     owned: number;
     in_deck: boolean;
@@ -511,7 +642,17 @@ export async function searchDeckCards(
     ),
     matches AS (
       SELECT o.oracle_id, o.name, o.type_line, o.mana_cost, o.color_identity,
-             o.legalities->>'commander' AS commander_legality,
+             /*
+              * Judged by the deck's own format: Standard legality in a
+              * Standard deck, Commander's in a Commander deck, and NULL in a
+              * cube, which has no ban list to be on. A scalar subquery
+              * rather than a second round trip, because this runs on every
+              * debounce of the search box.
+              */
+             o.legalities->>(
+               SELECT ${LEGALITY_KEY_BY_DECK_FORMAT}
+                 FROM decks WHERE id = ${deckId}::uuid
+             ) AS format_legality,
              -- An exact name first, then a prefix, then anything: typing
              -- "bolt" should not bury Lightning Bolt under Bolt Bend.
              CASE
@@ -528,7 +669,7 @@ export async function searchDeckCards(
     )
     SELECT base.oracle_id::text AS oracle_id,
            base.name, base.type_line, base.mana_cost,
-           base.color_identity, base.commander_legality,
+           base.color_identity, base.format_legality,
            ${availableFragment(sql`${deckId}::uuid`)} AS available,
            coalesce((
              SELECT sum(c.quantity) FROM collection_items c
@@ -554,7 +695,7 @@ export async function searchDeckCards(
     typeLine: r.type_line,
     manaCost: r.mana_cost,
     colorIdentity: r.color_identity ?? [],
-    commanderLegality: r.commander_legality,
+    formatLegality: r.format_legality,
     available: r.available,
     owned: r.owned,
     inDeck: r.in_deck,

@@ -8,6 +8,7 @@ import { ManaCost } from "@/components/mana-cost";
 import {
   boardLabel,
   boardsFor,
+  legalityKeyFor,
   type DeckBoard,
   type DeckFormat,
 } from "@/lib/decks/constants";
@@ -18,7 +19,7 @@ type Candidate = {
   typeLine: string | null;
   manaCost: string | null;
   colorIdentity: string[];
-  commanderLegality: string | null;
+  formatLegality: string | null;
   available: number;
   owned: number;
   inDeck: boolean;
@@ -49,11 +50,15 @@ export function DeckCardSearch({
 }) {
   const boards = boardsFor(format);
   /*
-   * Commander legality and colour identity are facts about a Commander deck,
-   * and both badges would be noise in a cube: a cube has no ban list and
-   * nothing to stay inside, so a Conspiracy or a five-colour card is a
-   * perfectly ordinary thing to put in one.
+   * Two badges, gated separately, because they are facts about different
+   * things. Legality is a fact about the deck's *format* — Standard has a
+   * ban list and a rotating pool, so the badge belongs there too, reading
+   * Standard's column — while colour identity is a fact about having a
+   * commander, which only one format does. A cube gets neither: it has no
+   * ban list and nothing to stay inside, so a Conspiracy or a five-colour
+   * card is a perfectly ordinary thing to put in one.
    */
+  const showLegality = legalityKeyFor(format) !== null;
   const commanderRules = format === "commander";
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -239,9 +244,9 @@ export function DeckCardSearch({
                       : "not owned"}
                 </span>
 
-                {commanderRules && candidate.commanderLegality !== "legal" ? (
+                {showLegality && candidate.formatLegality !== "legal" ? (
                   <span className="text-xs text-bad">
-                    {candidate.commanderLegality === "banned"
+                    {candidate.formatLegality === "banned"
                       ? "banned"
                       : "not legal"}
                   </span>

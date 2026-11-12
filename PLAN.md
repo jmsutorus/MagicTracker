@@ -14,6 +14,8 @@ Established requirements:
 
 - **Formats played:** Commander and sealed. This narrows Phase 5 considerably — Commander rules
   (singleton, color identity, 100 cards) instead of a general multi-format legality engine.
+  (Standard was added after the eight phases, as a second rule set rather than a generalised
+  one — see the end of §7.)
   (Cubes were added after the eight phases; they are a second *kind of list*, not a second
   rule set to validate — see the end of §7.)
 - **Existing collection:** none. Nothing to migrate, so bulk import is a convenience rather than
@@ -603,6 +605,55 @@ carrying the identity.
 every card in the list. Pasting into a new cube is one control on the import screen instead,
 which is how a 360-card list arrives anyway.
 
+**After the phases — Standard decks** ✅
+
+The second format somebody actually plays, and the first one with a
+*sideboard*. `decks.format` grew a third value and `getDeck` a third tagged
+verdict — `{ kind: "commander" | "standard" | "cube", report }` — because a
+60-card constructed deck is not a Commander deck with the singleton rule
+relaxed: sixty is a floor rather than a size, four copies is the limit rather
+than one, there is no command zone and no colour identity, and the card pool
+rotates.
+
+*Sixty is a minimum, a hundred is exact, a cube is a target.* Three formats,
+three readings of one number, and a single `count === target` test is wrong
+for two of them — 99 cards in a Commander deck is illegal, 63 in a Standard
+deck is fine. `sizeRuleFor` is what keeps the deck list from printing
+"63 / 60" as though a legal deck had failed something.
+
+*The four-copy limit spans the sideboard, which is why `side` is a board and
+not a reuse of the maybeboard.* Four in the deck and two in the sideboard is
+six copies and is illegal. `deck_cards` is keyed on (deck, **board**, card),
+so those are two rows by design and the per-row check — the one the storage
+layer invites you to write — passes that deck in silence. Copies are summed
+per card across every counted board instead. A sideboard also *is* the deck
+in every way the maybeboard is not: it is bought, owned, claimed and shared,
+and it is the fifteen cards you actually sleeve.
+
+*Each deck is judged by its own legality column.* `legalityKeyFor` picks it
+once — Standard's for a Standard deck, Commander's for a Commander deck, and
+a real `NULL` for a cube, which has no ban list to be on — and every query
+selects through that. Reading one hard-coded column would have put a red
+*not legal* badge on every ordinary Standard card in the search box. Scryfall
+maintains the column and the weekly ingest refreshes it, so a rotation or a
+ban announcement lands within the week with no list to keep here.
+
+*A pasted sideboard lands in the sideboard, but only where there is one.*
+`sectionToBoard` now takes the destination's format. In Commander or a cube
+those lines still go to the maybeboard, for the reason they always did:
+dropping them loses cards from a paste, and counting them makes every
+imported 60-card list illegal by fifteen.
+
+*The board a format does not have is refused at the write, not just in the
+UI.* One `board` column serves three formats, so its CHECK is the union of
+all of them and cannot catch a sideboard on a Commander deck. Server actions
+are public endpoints, so `boardsFor` is consulted before the insert — which
+matters beyond tidiness, because `countedBoardsFor` decides what reaches the
+rules engine, and a row on a board its format does not count would be bought
+and owned like any other card while being invisible to the verdict. Rows a
+*paste* strands are still shown and still counted, with the report asking you
+to move them — the same judgment the cube report makes.
+
 **After the phases — Buying what's missing** ✅
 
 Both "what don't I have" answers already existed as downloads — a deck's buy list, a set's want
@@ -675,7 +726,8 @@ hue, no legend, and nothing drawn at all until there are two points.
 
 ## 9. Open questions
 
-None. All eight phases are built, deployed and verified, and cubes are in on top of them;
+None. All eight phases are built, deployed and verified, and cubes and Standard decks are in on
+top of them;
 what is left is in §10 by choice, not by blockage. The one outstanding manual step is optional: connecting the
 GitHub repo to Firebase App Hosting for push-to-deploy, which needs a browser to
 authorize the Firebase GitHub App. Until then, deploying is

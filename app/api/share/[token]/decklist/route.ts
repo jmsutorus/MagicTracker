@@ -32,15 +32,27 @@ export async function GET(
       const heading =
         board === "commander"
           ? "// Commander"
-          : board === "maybe"
-            ? "// Maybeboard"
-            : "// Deck";
+          : board === "side"
+            ? "// Sideboard"
+            : board === "maybe"
+              ? "// Maybeboard"
+              : "// Deck";
       return `${heading}\n${formatCardList(cards)}`;
     });
 
+    /*
+     * Every copy in the file, not the verdict's count: a Standard deck's
+     * `cardCount` is its sixty and the sideboard is printed below it, so the
+     * verdict's number would be a line that disagrees with the list under it.
+     */
+    const copies = deck.boards.reduce(
+      (total, { cards }) => total + cards.reduce((n, c) => n + c.quantity, 0),
+      0,
+    );
+
     const body = [
       `// ${deck.name}`,
-      `// ${deck.verdict.report.cardCount} cards, shared from MagicTracker`,
+      `// ${copies} cards, shared from MagicTracker`,
       "",
       sections.join("\n\n"),
       "",

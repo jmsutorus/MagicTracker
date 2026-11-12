@@ -54,7 +54,7 @@ function pickedCard(
 }
 
 type LocationOption = { id: string; name: string };
-type DeckOption = { id: string; name: string };
+type DeckOption = { id: string; name: string; format: DeckFormat };
 
 /**
  * Paste a list, see what it means, then decide what to do with it.
@@ -116,6 +116,19 @@ export function ImportPaste({
   const [newCubeSize, setNewCubeSize] = useState(String(DEFAULT_CUBE_SIZE));
   const [newCubeCustom, setNewCubeCustom] = useState(String(DEFAULT_CUBE_SIZE));
 
+  /*
+   * The format the cards are actually going to land in, which decides where
+   * a pasted sideboard goes: a real sideboard in a Standard deck, the
+   * maybeboard anywhere else. Unknown destinations read as Commander, which
+   * is what every paste did before Standard existed.
+   */
+  const destinationFormat: DeckFormat =
+    target === "deck"
+      ? deckId === "new"
+        ? newDeckFormat
+        : (decks.find((d) => d.id === deckId)?.format ?? "commander")
+      : "commander";
+
   const wantedCubeSize =
     newCubeSize === CUBE_SIZE_OTHER
       ? Number.parseInt(newCubeCustom, 10)
@@ -153,8 +166,9 @@ export function ImportPaste({
               : null,
           };
         }),
+        destinationFormat,
       ),
-    [lines, picks],
+    [lines, picks, destinationFormat],
   );
 
   const included = lines.filter((l) => pickedCard(l, picks) !== null);
@@ -200,7 +214,7 @@ export function ImportPaste({
         quantity: line.quantity,
         finish: line.finish,
         condition: line.condition,
-        board: sectionToBoard(line.section),
+        board: sectionToBoard(line.section, destinationFormat),
       };
     });
 
@@ -444,6 +458,7 @@ export function ImportPaste({
               <ReviewSection
                 key={section}
                 section={section}
+                format={destinationFormat}
                 rows={rows}
                 picks={picks}
                 onPick={(lineNumber, oracleId) =>
@@ -693,12 +708,14 @@ function Choice({
 
 function ReviewSection({
   section,
+  format,
   rows,
   picks,
   onPick,
   chosenFor,
 }: {
   section: ImportSection;
+  format: DeckFormat;
   rows: ResolvedLine[];
   picks: Record<number, string>;
   onPick: (lineNumber: number, oracleId: string) => void;
@@ -710,7 +727,7 @@ function ReviewSection({
     <section>
       <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
         {IMPORT_SECTION_LABELS[section]} ({copies})
-        {sectionToBoard(section) === "maybe" ? (
+        {sectionToBoard(section, format) === "maybe" ? (
           <span className="ml-2 font-normal normal-case">
             — counts toward nothing
           </span>

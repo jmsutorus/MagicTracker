@@ -5,16 +5,19 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 
 import {
-  COUNTED_BOARDS,
+  BOARD_ORDER,
   isDeckFormat,
   targetSizeFor,
   type DeckBoard,
   type DeckFormat,
 } from "./constants";
-import { checkCube, type CubeCard } from "./cube";
-import { checkCommanderDeck, type LegalityCard } from "./legality";
 import type { DeckError, DeckResult } from "./mutations";
-import type { DeckVerdict } from "./queries";
+import {
+  BOARD_ORDER_SQL,
+  buildVerdict,
+  legalityColumnFor,
+  type DeckVerdict,
+} from "./queries";
 
 /**
  * Unlisted share links.
@@ -145,7 +148,7 @@ export type SharedCard = {
 export type SharedDeck = {
   name: string;
   format: DeckFormat;
-  /** 100, or the cube's own size. */
+  /** 100, 60 at least, or the cube's own size. */
   targetSize: number;
   updatedAt: string;
   sharedAt: string | null;
@@ -189,6 +192,13 @@ export async function getSharedDeck(token: string): Promise<SharedDeck | null> {
   const deck = deckRows[0];
   if (!deck) return null;
 
+  // Before the cards, because it picks the legality column they are read
+  // with — the same order, and for the same reason, as `getDeck`.
+  const format: DeckFormat = isDeckFormat(deck.format)
+    ? deck.format
+    : "commander";
+  const targetSize = targetSizeFor(format, deck.target_size);
+
   const { rows } = await db.execute<{
     board: string;
     oracle_id: string;
@@ -200,7 +210,7 @@ export async function getSharedDeck(token: string): Promise<SharedDeck | null> {
     colors: string[] | null;
     cmc: number | null;
     keywords: string[] | null;
-    commander_legality: string | null;
+    format_legality: string | null;
     quantity: number;
     set_code: string | null;
     collector_number: string | null;
@@ -215,7 +225,7 @@ export async function getSharedDeck(token: string): Promise<SharedDeck | null> {
            o.colors,
            o.cmc,
            o.keywords,
-           o.legalities->>'commander' AS commander_legality,
+           ${legalityColumnFor(format)} AS format_legality,
            dc.quantity,
            p.set_code,
            p.collector_number
@@ -223,76 +233,27 @@ export async function getSharedDeck(token: string): Promise<SharedDeck | null> {
       JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
       LEFT JOIN printings p ON p.scryfall_id = dc.printing_id
      WHERE dc.deck_id = ${deck.id}::uuid
-     ORDER BY array_position(
-                ARRAY['commander', 'main', 'maybe']::text[], dc.board
-              ),
+     ORDER BY array_position(${BOARD_ORDER_SQL}, dc.board),
               o.cmc NULLS FIRST,
               o.name
   `);
 
-  const format: DeckFormat = isDeckFormat(deck.format)
-    ? deck.format
-    : "commander";
-  const targetSize = targetSizeFor(format, deck.target_size);
+  const verdict = buildVerdict(format, targetSize, rows);
 
-  // The same filter the owner's page applies: the maybeboard counts toward
-  // nothing, so it cannot drag the verdict down for a visitor either.
-  const countedRows = rows.filter((r) =>
-    (COUNTED_BOARDS as readonly string[]).includes(r.board),
-  );
-
-  const verdict: DeckVerdict =
-    format === "cube"
-      ? {
-          kind: "cube",
-          report: checkCube(
-            countedRows.map((r): CubeCard => ({
-              oracleId: r.oracle_id,
-              name: r.name,
-              typeLine: r.type_line,
-              oracleText: r.oracle_text,
-              colors: r.colors,
-              colorIdentity: r.color_identity ?? [],
-              cmc: r.cmc,
-              board: r.board as DeckBoard,
-              quantity: r.quantity,
-            })),
-            targetSize,
-          ),
-        }
-      : {
-          kind: "commander",
-          report: checkCommanderDeck(
-            countedRows.map((r): LegalityCard => ({
-              oracleId: r.oracle_id,
-              name: r.name,
-              typeLine: r.type_line,
-              oracleText: r.oracle_text,
-              colorIdentity: r.color_identity ?? [],
-              keywords: r.keywords,
-              commanderLegality: r.commander_legality,
-              board: r.board as DeckBoard,
-              quantity: r.quantity,
-            })),
-          ),
-        };
-
-  const boards = (["commander", "main", "maybe"] as const)
-    .map((board) => ({
-      board: board as DeckBoard,
-      cards: rows
-        .filter((r) => r.board === board)
-        .map((r) => ({
-          oracleId: r.oracle_id,
-          name: r.name,
-          typeLine: r.type_line,
-          manaCost: r.mana_cost,
-          quantity: r.quantity,
-          setCode: r.set_code,
-          collectorNumber: r.collector_number,
-        })),
-    }))
-    .filter((b) => b.cards.length > 0);
+  const boards = BOARD_ORDER.map((board) => ({
+    board: board as DeckBoard,
+    cards: rows
+      .filter((r) => r.board === board)
+      .map((r) => ({
+        oracleId: r.oracle_id,
+        name: r.name,
+        typeLine: r.type_line,
+        manaCost: r.mana_cost,
+        quantity: r.quantity,
+        setCode: r.set_code,
+        collectorNumber: r.collector_number,
+      })),
+  })).filter((b) => b.cards.length > 0);
 
   return {
     name: deck.name,

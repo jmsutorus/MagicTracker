@@ -22,10 +22,12 @@ import {
  * create a deck is to put cards in it.
  *
  * The format is chosen here and not changed later. That is deliberate: the
- * two formats mean different things about every card in the list — a cube has
- * no command zone and no colour identity — so switching one would silently
- * reinterpret the whole deck. Pasting a list into a new cube is one step on
- * the import screen, which is how a cube usually arrives anyway.
+ * three formats mean different things about every card in the list — a cube
+ * has no command zone and no colour identity, a Standard deck has a
+ * sideboard and a four-copy limit, a Commander deck has neither — so
+ * switching one would silently reinterpret the whole deck. Pasting a list
+ * into a new deck of any format is one step on the import screen, which is
+ * how a cube and a netdeck both usually arrive anyway.
  */
 const OTHER = "other";
 
@@ -87,7 +89,9 @@ export function DeckCreateForm() {
             placeholder={
               format === "cube"
                 ? "Vintage cube, Peasant cube…"
-                : "Zinnia, Valley's Voice…"
+                : format === "standard"
+                  ? "Mono-red aggro, Dimir midrange…"
+                  : "Zinnia, Valley's Voice…"
             }
             className="w-64 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
           />
@@ -164,7 +168,9 @@ export function DeckCreateForm() {
       <p className="mt-2 text-xs text-muted">
         {format === "cube"
           ? "A draft pool: singleton by convention, no commander, no colour identity to stay inside. The size is yours to change later."
-          : "100 cards, singleton, inside the commander's colour identity — checked as you build."}
+          : format === "standard"
+            ? "60 cards or more, a sideboard of up to 15, and four copies of anything — counted across both. Legality follows Scryfall, so a rotation arrives on its own."
+            : "100 cards, singleton, inside the commander's colour identity — checked as you build."}
       </p>
 
       {error ? (

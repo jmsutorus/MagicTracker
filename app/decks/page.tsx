@@ -4,7 +4,11 @@ import { AppHeader } from "@/components/app-header";
 import { DeckCreateForm } from "@/components/deck-create-form";
 import { ProgressBar } from "@/components/progress-bar";
 import { requireUser } from "@/lib/auth/dal";
-import { DECK_FORMAT_LABELS } from "@/lib/decks/constants";
+import {
+  DECK_FORMAT_LABELS,
+  meetsTargetSize,
+  sizeRuleFor,
+} from "@/lib/decks/constants";
 import { formatColorIdentity } from "@/lib/decks/legality";
 import { listDecks } from "@/lib/decks/queries";
 
@@ -22,8 +26,8 @@ export default async function DecksPage() {
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8">
         <h1 className="text-2xl font-semibold tracking-tight">Decks</h1>
         <p className="mt-2 text-sm text-muted">
-          Commander decks, checked against the rules, and cubes, checked against
-          the size you set — both against what you own.
+          Commander and Standard decks, checked against their rules, and cubes,
+          checked against the size you set — all against what you own.
         </p>
 
         <div className="mt-6">
@@ -44,14 +48,22 @@ export default async function DecksPage() {
         ) : (
           <ul className="mt-8 space-y-2">
             {decks.map((deck) => {
+              /* The sideboard is not part of the 60, but it is part of
+                 what you have to own, so it is in the denominator here and
+                 not in the count beside it. */
+              const needed = deck.cardCount + deck.sideboardCount;
               const percent =
-                deck.cardCount === 0
+                needed === 0
                   ? 0
                   : Math.min(
-                      Math.round((deck.ownedCopies / deck.cardCount) * 100),
+                      Math.round((deck.ownedCopies / needed) * 100),
                       100,
                     );
-              const complete = deck.cardCount === deck.targetSize;
+              const complete = meetsTargetSize(
+                deck.format,
+                deck.cardCount,
+                deck.targetSize,
+              );
 
               return (
                 <li key={deck.id}>
@@ -78,7 +90,15 @@ export default async function DecksPage() {
                       <span
                         className={`text-sm tabular-nums ${complete ? "" : "text-muted"}`}
                       >
-                        {deck.cardCount} / {deck.targetSize}
+                        {/* "63 / 60" would read as two over a limit. A
+                            Standard deck's 60 is a floor, so a deck that
+                            clears it prints its own size and nothing else. */}
+                        {sizeRuleFor(deck.format) === "at_least" && complete
+                          ? deck.cardCount
+                          : `${deck.cardCount} / ${deck.targetSize}`}
+                        {deck.sideboardCount > 0
+                          ? ` + ${deck.sideboardCount}`
+                          : ""}
                       </span>
                       <span
                         className={`text-sm ${percent >= 100 ? "text-ok" : "text-muted"}`}
@@ -92,9 +112,13 @@ export default async function DecksPage() {
                     <div className="mt-1 text-xs text-muted">
                       {deck.format === "cube"
                         ? `${deck.targetSize}-card cube`
-                        : deck.commanderNames.length > 0
-                          ? deck.commanderNames.join(" + ")
-                          : "no commander yet"}
+                        : deck.format === "standard"
+                          ? deck.sideboardCount > 0
+                            ? `Standard · ${deck.sideboardCount}-card sideboard`
+                            : "Standard · no sideboard"
+                          : deck.commanderNames.length > 0
+                            ? deck.commanderNames.join(" + ")
+                            : "no commander yet"}
                       {deck.allocatedCopies > 0
                         ? ` · built${deck.locationName ? ` in ${deck.locationName}` : ""}`
                         : deck.locationName

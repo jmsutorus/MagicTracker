@@ -358,7 +358,6 @@ export {
 export type { PreconBoard } from "@/lib/products/constants";
 export {
   COMMANDER_DECK_SIZE,
-  COUNTED_BOARDS,
   DECK_BOARDS,
   DECK_BOARD_LABELS,
   DECK_FORMATS,
@@ -712,7 +711,7 @@ export const decks = pgTable(
 
     name: text("name").notNull(),
 
-    /** `commander` or `cube`; see lib/decks/constants.ts. */
+    /** `commander`, `standard` or `cube`; see lib/decks/constants.ts. */
     format: text("format").notNull().default("commander"),
 
     /**
@@ -776,7 +775,10 @@ export const decks = pgTable(
     uniqueIndex("decks_share_token_key")
       .on(table.shareToken)
       .where(sql`${table.shareToken} IS NOT NULL`),
-    check("decks_format_check", sql`${table.format} IN ('commander', 'cube')`),
+    check(
+      "decks_format_check",
+      sql`${table.format} IN ('commander', 'standard', 'cube')`,
+    ),
     /*
      * Bounded, not just positive. The column is the owner's own number, and
      * it arrives from a form — a stray keypress asking for a 36,000-card
@@ -818,7 +820,17 @@ export const deckCards = pgTable(
       onDelete: "set null",
     }),
 
-    /** commander | main | maybe */
+    /**
+     * commander | main | side | maybe
+     *
+     * `side` is a real sideboard and `maybe` is a shortlist, which is why
+     * they are two values and not one: a sideboard is bought, owned, claimed
+     * and bound by the four-copy limit, and a maybeboard counts toward
+     * nothing at all. Which boards a deck may use is its format's business —
+     * `boardsFor` in lib/decks/constants.ts — and the mutations check that
+     * before writing, so this CHECK is the union of every format's boards
+     * rather than the set any one deck can hold.
+     */
     board: text("board").notNull().default("main"),
 
     /**
@@ -884,7 +896,7 @@ export const deckCards = pgTable(
     ),
     check(
       "deck_cards_board_check",
-      sql`${table.board} IN ('commander', 'main', 'maybe')`,
+      sql`${table.board} IN ('commander', 'main', 'side', 'maybe')`,
     ),
   ],
 );

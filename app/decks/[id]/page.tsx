@@ -15,11 +15,9 @@ import { ProgressBar } from "@/components/progress-bar";
 import { PurchaseButtons } from "@/components/purchase-buttons";
 import { requireUser } from "@/lib/auth/dal";
 import { listLocations } from "@/lib/collection/queries";
-import {
-  COMMANDER_DECK_SIZE,
-  DECK_FORMAT_LABELS,
-} from "@/lib/decks/constants";
+import { COMMANDER_DECK_SIZE, DECK_FORMAT_LABELS } from "@/lib/decks/constants";
 import { type LegalityReport } from "@/lib/decks/legality";
+import { type StandardReport } from "@/lib/decks/standard";
 import { getDeck } from "@/lib/decks/queries";
 import { getShareState } from "@/lib/decks/share";
 
@@ -92,7 +90,10 @@ export default async function DeckPage({
             />
           ) : (
             <span className="text-sm text-muted">
-              {DECK_FORMAT_LABELS[deck.format]} · {deck.targetSize} cards
+              {DECK_FORMAT_LABELS[deck.format]} ·{" "}
+              {deck.verdict.kind === "standard"
+                ? `${deck.targetSize} cards or more`
+                : `${deck.targetSize} cards`}
             </span>
           )}
         </div>
@@ -107,6 +108,12 @@ export default async function DeckPage({
         */}
         {deck.verdict.kind === "commander" ? (
           <CommanderVerdict
+            report={deck.verdict.report}
+            ownedCopies={ownedCopies}
+            neededCopies={neededCopies}
+          />
+        ) : deck.verdict.kind === "standard" ? (
+          <StandardVerdict
             report={deck.verdict.report}
             ownedCopies={ownedCopies}
             neededCopies={neededCopies}
@@ -195,14 +202,17 @@ export default async function DeckPage({
             deckId={deck.id}
             format={deck.format}
             defaultBoard={
-              // A cube has no command zone, so every card goes to the list.
-              // A Commander deck starts on the commander, because an empty
-              // deck's first card is one and the colour-identity check has
-              // nothing to work from until it is there.
-              deck.format === "cube" ||
-              deck.cards.some((c) => c.board === "commander")
-                ? "main"
-                : "commander"
+              /*
+               * A Commander deck starts on the command zone, because an
+               * empty deck's first card is a commander and the
+               * colour-identity check has nothing to work from until it is
+               * there. Nothing else has a command zone at all, so every
+               * other format starts on the list itself.
+               */
+              deck.format === "commander" &&
+              !deck.cards.some((c) => c.board === "commander")
+                ? "commander"
+                : "main"
             }
           />
         </div>
@@ -227,6 +237,17 @@ export default async function DeckPage({
                   paste the whole list
                 </Link>{" "}
                 — {deck.targetSize} names is a paste, not an afternoon.
+              </>
+            ) : deck.format === "standard" ? (
+              <>
+                Empty deck. Add cards above, or{" "}
+                <Link
+                  href="/import"
+                  className="underline underline-offset-4 hover:text-foreground"
+                >
+                  paste a list
+                </Link>{" "}
+                — a pasted sideboard lands in the sideboard.
               </>
             ) : (
               <>
@@ -296,6 +317,115 @@ function CommanderVerdict({
             </strong>
           </>
         ) : report.cardCount > 0 ? (
+          " — you own the whole deck"
+        ) : (
+          ""
+        )}
+        .
+      </p>
+
+      {errors.length > 0 ? (
+        <ul className="mt-4 space-y-2">
+          {errors.map((problem) => (
+            <li key={problem.code + problem.message} className="text-sm">
+              <span className="text-bad">✗</span> {problem.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {warnings.length > 0 ? (
+        <ul className="mt-4 space-y-2">
+          {warnings.map((problem) => (
+            <li
+              key={problem.code + problem.message}
+              className="text-sm text-muted"
+            >
+              <span>!</span> {problem.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * The Standard verdict: the sixty, the sideboard, and every rule it breaks.
+ *
+ * Two counts rather than one, because they are two limits of different
+ * kinds. The deck is "60 or more" — so the figure next to it says *minimum*
+ * and a deck over it is not flagged — while the sideboard is "15 or fewer",
+ * which is the only place in this app where a bigger number is the failure.
+ * Printing one 75-card total against a 60-card rule would make a legal deck
+ * look broken.
+ *
+ * Errors and warnings stay separated for the same reason they are in the
+ * Commander panel: an error is "not legal", a warning is "look at this".
+ */
+function StandardVerdict({
+  report,
+  ownedCopies,
+  neededCopies,
+}: {
+  report: StandardReport;
+  ownedCopies: number;
+  neededCopies: number;
+}) {
+  const totalCopies = report.cardCount + report.sideboardCount;
+  const ownedPercent =
+    totalCopies === 0
+      ? 0
+      : Math.min(Math.round((ownedCopies / totalCopies) * 100), 100);
+
+  const errors = report.problems.filter((p) => p.severity === "error");
+  const warnings = report.problems.filter((p) => p.severity === "warning");
+
+  return (
+    <section className="mt-6 rounded-lg border border-border bg-surface p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+          <span className="text-3xl font-semibold tabular-nums">
+            {report.cardCount}
+            <span className="text-xl text-muted">
+              {" / "}
+              {report.minimumSize}
+            </span>
+            <span className="ml-2 text-sm font-normal text-muted">minimum</span>
+          </span>
+          <span className="text-sm text-muted">
+            Sideboard{" "}
+            <span
+              className={`tabular-nums ${
+                report.sideboardCount > report.maximumSideboard
+                  ? "text-bad"
+                  : "text-foreground"
+              }`}
+            >
+              {report.sideboardCount} / {report.maximumSideboard}
+            </span>
+          </span>
+        </div>
+        <span
+          className={`text-lg font-semibold ${
+            report.legal ? "text-ok" : "text-bad"
+          }`}
+        >
+          {report.legal ? "Legal" : "Not legal yet"}
+        </span>
+      </div>
+
+      <ProgressBar percent={ownedPercent} className="mt-3" />
+      <p className="mt-3 text-sm text-muted">
+        {ownedCopies} of {totalCopies} cards available from your collection
+        {neededCopies > 0 ? (
+          <>
+            {" — "}
+            <strong className="font-normal text-foreground">
+              {neededCopies} still to buy
+            </strong>
+          </>
+        ) : totalCopies > 0 ? (
           " — you own the whole deck"
         ) : (
           ""

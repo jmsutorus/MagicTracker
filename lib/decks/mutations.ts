@@ -4,11 +4,14 @@ import { getDb } from "@/lib/db";
 
 import {
   DECK_BOARDS,
+  DECK_BOARD_LABELS,
+  DECK_FORMAT_LABELS,
   DEFAULT_CUBE_SIZE,
   MAX_CUBE_SIZE,
   MAX_DECK_CARD_QUANTITY,
   MAX_DECK_NAME_LENGTH,
   MIN_CUBE_SIZE,
+  boardInFormat,
   cleanCategory,
   isDeckFormat,
   type DeckBoard,
@@ -55,13 +58,50 @@ function touch(deckId: string) {
 }
 
 /**
- * What a new deck can be told about itself.
+ * Refuses a board that would make a row invisible to the deck's verdict.
  *
- * An options object rather than more positional parameters: `format` and
- * `targetSize` only ever travel together, and the next caller to pass
- * `createDeck(name, 360)` by mistake would have written a deck whose notes
- * are the number 360.
+ * The CHECK on `deck_cards.board` is the union of every format's boards — it
+ * has to be, since one column serves all three — so it cannot catch a
+ * sideboard on a Commander deck. These are server actions, which are public
+ * HTTP endpoints, so the rule lives here rather than only in the editor that
+ * offers the choices.
+ *
+ * The rule is `boardInFormat`, the same one the paste import re-files by,
+ * and it is narrower than "boards this format offers". A card in a cube's
+ * command zone is **allowed**: `countedBoardsFor` counts it, and the cube
+ * report names it and asks you to move it, so nothing is hidden. A sideboard
+ * on a Commander deck is not: no report would count it, while ownership,
+ * allocation and the buy list all would — a row bought and claimed like the
+ * rest of the deck and absent from the only panel that explains the deck.
+ *
+ * `null` means allowed. It costs a round trip on the card-adding path, which
+ * is the one place in this app where latency is felt; it is one indexed
+ * primary-key read, and the alternative is a second copy of the rule written
+ * in SQL.
  */
+async function rejectBoardForDeck(
+  deckId: string,
+  board: DeckBoard,
+): Promise<DeckError | null> {
+  const db = getDb();
+  const { rows } = await db.execute<{ format: string }>(
+    sql`SELECT format FROM decks WHERE id = ${deckId}::uuid`,
+  );
+
+  const row = rows[0];
+  if (!row) return { ok: false, error: "That deck no longer exists." };
+
+  const format = isDeckFormat(row.format) ? row.format : "commander";
+  if (boardInFormat(board, format) === board) return null;
+
+  return {
+    ok: false,
+    error: `A ${DECK_FORMAT_LABELS[format]} deck has no ${DECK_BOARD_LABELS[
+      board
+    ].toLowerCase()}.`,
+  };
+}
+
 export type NewDeckOptions = {
   notes?: string | null;
   format?: string | null;
@@ -72,7 +112,9 @@ export type NewDeckOptions = {
 /**
  * Checks a format and its size together, because the pair is what has to
  * make sense: a stored size on a Commander deck is a contradiction, not a
- * preference, so it is dropped rather than saved and then ignored.
+ * preference, so it is dropped rather than saved and then ignored. Same for
+ * Standard, whose 60 is a rule and whose deck has no maximum — there is no
+ * number a row could hold that would not be either redundant or wrong.
  */
 export function checkDeckShape(
   options: NewDeckOptions,
@@ -330,6 +372,9 @@ export async function addDeckCard(
     };
   }
 
+  const wrongBoard = await rejectBoardForDeck(deckId, board);
+  if (wrongBoard) return wrongBoard;
+
   const db = getDb();
   try {
     const { rows } = await db.execute<{ id: string }>(sql`
@@ -454,6 +499,23 @@ export async function setDeckCardBoard(
   if (!isBoard(board)) return { ok: false, error: `Invalid board "${board}".` };
 
   const db = getDb();
+
+  /*
+   * The deck is reached through the card here, since that is all a move
+   * knows about. Looked up first so a board the format does not have is
+   * refused with a sentence rather than merged into a deck that cannot
+   * have it.
+   */
+  const { rows: owner } = await db.execute<{ deck_id: string }>(
+    sql`SELECT deck_id::text AS deck_id FROM deck_cards WHERE id = ${deckCardId}::uuid`,
+  );
+  if (!owner[0]) {
+    return { ok: false, error: "That card is no longer in the deck." };
+  }
+
+  const wrongBoard = await rejectBoardForDeck(owner[0].deck_id, board);
+  if (wrongBoard) return wrongBoard;
+
   try {
     const { rows } = await db.execute<{ moved: number; deck_id: string }>(sql`
       WITH source AS (
@@ -536,7 +598,8 @@ export async function setDeckCardCategory(
     `);
 
     const row = rows[0];
-    if (!row) return { ok: false, error: "That card is no longer in the deck." };
+    if (!row)
+      return { ok: false, error: "That card is no longer in the deck." };
 
     await db.execute(touch(row.deck_id));
     return { ok: true };

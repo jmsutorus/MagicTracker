@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
+import { BOARD_ORDER_SQL } from "@/lib/decks/queries";
 
 /**
  * The export: everything in this database that cannot be rebuilt.
@@ -204,9 +205,7 @@ export async function buildExport(): Promise<CollectionExport> {
       FROM deck_cards dc
       JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
       LEFT JOIN printings p ON p.scryfall_id = dc.printing_id
-     ORDER BY array_position(
-                ARRAY['commander', 'main', 'maybe']::text[], dc.board
-              ),
+     ORDER BY array_position(${BOARD_ORDER_SQL}, dc.board),
               o.name
   `);
 

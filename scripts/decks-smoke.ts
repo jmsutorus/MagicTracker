@@ -489,8 +489,8 @@ async function main() {
   );
   const blackLotus = bannedSearch.find((c) => c.name === "Black Lotus");
   assert.ok(blackLotus, "Black Lotus not found");
-  check("search reports commander legality", () =>
-    assert.equal(blackLotus.commanderLegality, "banned"),
+  check("search reports the deck format's legality", () =>
+    assert.equal(blackLotus.formatLegality, "banned"),
   );
 
   await mutations.addDeckCard({

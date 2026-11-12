@@ -295,11 +295,16 @@ test("comments and blank lines are skipped, not reported as problems", () => {
   assert.equal(result.skipped, 3);
 });
 
-test("a sideboard lands on the maybeboard", () => {
+test("a sideboard lands on the maybeboard, unless the format has one", () => {
   // Commander has no sideboard. Dropping the cards would lose them; counting
   // them would make every imported list illegal by 15 cards.
   assert.equal(sectionToBoard("sideboard"), "maybe");
   assert.equal(sectionToBoard("maybeboard"), "maybe");
+
+  // ...but a Standard deck has a real one, and that is where it goes.
+  assert.equal(sectionToBoard("sideboard", "standard"), "side");
+  assert.equal(sectionToBoard("sideboard", "cube"), "maybe");
+  assert.equal(sectionToBoard("maybeboard", "standard"), "maybe");
   assert.equal(sectionToBoard("commander"), "commander");
   assert.equal(sectionToBoard("main"), "main");
 });

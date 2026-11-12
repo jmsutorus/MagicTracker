@@ -17,42 +17,97 @@
  * ships precons and how `precon_cards` already stores them, so creating a
  * deck from a precon is a straight copy.
  *
+ * `side` is the sideboard, which only a 60-card constructed format has. It is
+ * a real part of the deck — you buy it, you own it, it is bound by the
+ * four-copy limit along with the main deck — which is exactly what separates
+ * it from `maybe`, and why it could not simply be folded into it when
+ * Standard arrived.
+ *
  * `maybe` is the maybeboard: cards under consideration that count toward
  * nothing — not the 100, not legality, not the buy list.
  */
-export const DECK_BOARDS = ["commander", "main", "maybe"] as const;
+export const DECK_BOARDS = ["commander", "main", "side", "maybe"] as const;
 export type DeckBoard = (typeof DECK_BOARDS)[number];
 
 export const DECK_BOARD_LABELS: Record<DeckBoard, string> = {
   commander: "Commander",
   main: "Deck",
+  side: "Sideboard",
   maybe: "Maybeboard",
 };
 
-/** Boards that count toward the 100 and toward legality. */
-export const COUNTED_BOARDS: readonly DeckBoard[] = ["commander", "main"];
+/**
+ * The order boards are listed and stored in, for the one `array_position`
+ * every decklist query sorts by.
+ *
+ * Exported as a plain string list because three SQL statements need it as a
+ * literal array, and three hand-written copies of `ARRAY['commander',
+ * 'main', 'maybe']` is precisely how a new board gets added in one of them
+ * and silently sorts last in the other two.
+ */
+export const BOARD_ORDER: readonly string[] = DECK_BOARDS;
+
+/**
+ * The boards that count toward a format's size and its verdict.
+ *
+ * Format-dependent, because the boards do not mean the same thing in each.
+ * A Commander deck's command zone is part of the 100; a Standard deck's
+ * sideboard is not part of the 60 but *is* bound by the four-copy limit, so
+ * the rules engine has to see it; a maybeboard is never counted anywhere.
+ *
+ * Everything not listed here is excluded before the rules engine runs, so a
+ * format that cannot have a board also cannot be judged by what is sitting
+ * on it.
+ */
+export function countedBoardsFor(format: DeckFormat): readonly DeckBoard[] {
+  if (format === "standard") return ["commander", "main", "side"];
+  return ["commander", "main"];
+}
 
 /**
  * What a deck is, which decides which rules it is held to.
  *
- * Two, because they are the two things this collection is actually for:
- * Commander, and a cube. Neither is "a deck with different rules turned on" —
- * a cube is a draft pool of 360-odd singleton cards with no commander, no
- * colour-identity restriction and no ban list, so it gets its own report in
- * lib/decks/cube.ts rather than a Commander verdict with the failing checks
- * suppressed. Everything *structural* is shared: a cube lives in `decks`, its
- * cards live in `deck_cards`, and owning, claiming and buying work the same,
- * because a cube is a stack of cards you physically have.
+ * Three, and none of them is "a deck with different rules turned on". A cube
+ * is a draft pool of 360-odd singleton cards with no commander, no
+ * colour-identity restriction and no ban list. A Standard deck is sixty
+ * cards or more with a fifteen-card sideboard, four copies of anything, and
+ * a card pool that rotates. Each gets its own report — lib/decks/cube.ts,
+ * lib/decks/standard.ts — rather than a Commander verdict with the
+ * inapplicable checks suppressed.
+ *
+ * Everything *structural* is shared: all three live in `decks`, their cards
+ * live in `deck_cards`, and owning, claiming, buying and sharing work the
+ * same, because all three are stacks of cards you physically have.
  *
  * Sealed is still not here: a sealed pool is not a list you curate.
  */
-export const DECK_FORMATS = ["commander", "cube"] as const;
+export const DECK_FORMATS = ["commander", "standard", "cube"] as const;
 export type DeckFormat = (typeof DECK_FORMATS)[number];
 
 export const DECK_FORMAT_LABELS: Record<DeckFormat, string> = {
   commander: "Commander",
+  standard: "Standard",
   cube: "Cube",
 };
+
+/**
+ * Which key in `oracle_cards.legalities` decides whether a card may be in
+ * this deck, or null for a format nobody can be illegal in.
+ *
+ * A cube has no ban list — a Conspiracy or a playtest card is a perfectly
+ * ordinary thing to put in one — so it gets null rather than being quietly
+ * held to Commander's list, which is what reading one hard-coded key for
+ * every format would have done.
+ *
+ * Scryfall maintains these per card and the weekly ingest refreshes them, so
+ * a Standard rotation lands here within a week of happening, with no code
+ * change and no list to keep.
+ */
+export function legalityKeyFor(format: DeckFormat): string | null {
+  if (format === "commander") return "commander";
+  if (format === "standard") return "standard";
+  return null;
+}
 
 export function isDeckFormat(value: unknown): value is DeckFormat {
   return (
@@ -63,6 +118,28 @@ export function isDeckFormat(value: unknown): value is DeckFormat {
 
 /** A Commander deck is exactly 100 cards, commanders included. */
 export const COMMANDER_DECK_SIZE = 100;
+
+/**
+ * Standard: sixty cards or more, fifteen in the sideboard or fewer, four
+ * copies of any one card across both.
+ *
+ * A *minimum*, not a size. A 61-card Standard deck is legal and sometimes
+ * deliberate, so the number here is a floor the deck has to clear rather
+ * than a target it has to hit — see `sizeRuleFor`, which is what keeps the
+ * deck list from printing "63 / 60" as though it were a failure.
+ */
+export const STANDARD_MIN_DECK_SIZE = 60;
+export const STANDARD_MAX_SIDEBOARD = 15;
+
+/**
+ * Four of any one card, across the main deck and the sideboard **together**.
+ *
+ * The combined part is the whole rule: four in the deck and two more in the
+ * sideboard is six copies and is illegal, and a per-row check — which is
+ * what the storage layer's unique key would naturally give you, since main
+ * and side are two different rows — would pass it without a word.
+ */
+export const STANDARD_COPY_LIMIT = 4;
 
 /**
  * How big a cube is meant to be.
@@ -115,22 +192,76 @@ export function targetSizeFor(
   storedTargetSize: number | null,
 ): number {
   if (format === "commander") return COMMANDER_DECK_SIZE;
+  if (format === "standard") return STANDARD_MIN_DECK_SIZE;
   return storedTargetSize ?? DEFAULT_CUBE_SIZE;
+}
+
+/**
+ * What that number *is*: a rule, a floor, or a plan.
+ *
+ * The three formats mean three different things by their size, and a single
+ * `count === target` test would be wrong for two of them. 99 cards in a
+ * Commander deck is illegal. 63 in a Standard deck is fine. 358 in a 360
+ * cube is neither — it is a cube you have not finished.
+ */
+export type SizeRule = "exact" | "at_least" | "target";
+
+export function sizeRuleFor(format: DeckFormat): SizeRule {
+  if (format === "commander") return "exact";
+  if (format === "standard") return "at_least";
+  return "target";
+}
+
+/** Whether a count satisfies the format's size, by that format's reading. */
+export function meetsTargetSize(
+  format: DeckFormat,
+  count: number,
+  targetSize: number,
+): boolean {
+  return sizeRuleFor(format) === "at_least"
+    ? count >= targetSize
+    : count === targetSize;
 }
 
 /**
  * The boards a format actually has.
  *
- * A cube has no command zone, so the editor never offers one. Cards already
- * sitting there — a Commander deck whose list was pasted into a cube, say —
- * still count and are still shown; the cube report asks you to move them
- * rather than hiding them.
+ * Neither a cube nor a Standard deck has a command zone, and only Standard
+ * has a sideboard, so the editor offers each format only the boards it can
+ * actually use. Cards already sitting somewhere a format has no board for —
+ * a Commander list pasted into a cube, say — still count and are still
+ * shown; the report asks you to move them rather than hiding them.
  */
 export function boardsFor(format: DeckFormat): readonly DeckBoard[] {
-  return format === "cube" ? ["main", "maybe"] : DECK_BOARDS;
+  if (format === "cube") return ["main", "maybe"];
+  if (format === "standard") return ["main", "side", "maybe"];
+  return ["commander", "main", "maybe"];
 }
 
-/** What the `main` board is called, which is not "Deck" for a cube. */
+/**
+ * The nearest board this format actually has.
+ *
+ * The rule is one sentence: a card must either count toward the deck's
+ * verdict or sit on the board that openly counts toward nothing. Anything
+ * else is a row that is bought, owned and claimed like the rest of the deck
+ * while being invisible to the only panel that explains the deck — which is
+ * the kind of discrepancy nobody ever finds.
+ *
+ * So it is not symmetric, and should not be. A commander pasted into a cube
+ * or a Standard deck **stays** in the command zone, because
+ * `countedBoardsFor` counts it there and the report names it and asks you to
+ * move it. A sideboard pasted into a Commander deck or a cube has no such
+ * home, so it lands on the maybeboard — the cards are kept, as a paste's
+ * cards always are, and nothing pretends they are part of the deck.
+ */
+export function boardInFormat(board: DeckBoard, format: DeckFormat): DeckBoard {
+  if (board === "maybe") return "maybe";
+  return (countedBoardsFor(format) as readonly string[]).includes(board)
+    ? board
+    : "maybe";
+}
+
+/** What a board is called, which is not always what the column says. */
 export function boardLabel(format: DeckFormat, board: DeckBoard): string {
   if (format === "cube" && board === "main") return "Cube list";
   if (format === "cube" && board === "maybe") return "Considering";

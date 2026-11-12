@@ -24,6 +24,7 @@ import {
   UNCATEGORISED,
   boardLabel,
   isDeckGrouping,
+  legalityKeyFor,
   type DeckFormat,
 } from "@/lib/decks/constants";
 import { groupDeckCards, type CardGroup } from "@/lib/decks/grouping";
@@ -92,9 +93,11 @@ export function DeckEditor({
     [deckId, refresh],
   );
 
-  const boards = DECK_BOARDS.filter((b) =>
-    cards.some((c) => c.board === b),
-  );
+  // Every board that has a card on it, in BOARD_ORDER. Not boardsFor(format):
+  // a row stranded on a board its format does not have still has to be
+  // visible, or it would count toward the verdict from somewhere the list
+  // never shows.
+  const boards = DECK_BOARDS.filter((b) => cards.some((c) => c.board === b));
 
   return (
     <section className="mt-8">
@@ -195,7 +198,9 @@ export function DeckEditor({
                  */
                 showHead={index === 0}
                 categoryOptions={categoryOptions}
-                showCategoryInput={grouping === "category" && board !== "commander"}
+                showCategoryInput={
+                  grouping === "category" && board !== "commander"
+                }
                 dropTarget={canDrop && board !== "commander"}
                 dragging={dragging}
                 onDragStart={setDragging}
@@ -351,7 +356,7 @@ function Group({
           cards={group.cards}
           deckId={deckId}
           format={format}
-          showLegality={format === "commander"}
+          showLegality={legalityKeyFor(format) !== null}
           showCategoryInput={showCategoryInput}
           categoryOptions={categoryOptions}
           draggable={dropTarget}
@@ -365,7 +370,7 @@ function Group({
           deckId={deckId}
           format={format}
           showHead={showHead}
-          showLegality={format === "commander"}
+          showLegality={legalityKeyFor(format) !== null}
           showCategoryInput={showCategoryInput}
           categoryOptions={categoryOptions}
           draggable={dropTarget}
@@ -477,9 +482,9 @@ function CardGrid({
                 </span>
               ) : null}
 
-              {showLegality && card.commanderLegality !== "legal" ? (
+              {showLegality && card.formatLegality !== "legal" ? (
                 <span className="absolute bottom-2 left-2 rounded-md bg-bad px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">
-                  {card.commanderLegality === "banned" ? "banned" : "not legal"}
+                  {card.formatLegality === "banned" ? "banned" : "not legal"}
                 </span>
               ) : null}
             </div>
@@ -607,9 +612,9 @@ function CardTable({
                   ) : null}
                   {/* A cube has no ban list, so the badge would be a
                       verdict nobody asked for. */}
-                  {showLegality && card.commanderLegality !== "legal" ? (
+                  {showLegality && card.formatLegality !== "legal" ? (
                     <span className="ml-2 text-xs text-bad">
-                      {card.commanderLegality === "banned"
+                      {card.formatLegality === "banned"
                         ? "banned"
                         : "not legal"}
                     </span>
