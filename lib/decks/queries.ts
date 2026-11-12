@@ -1,5 +1,6 @@
 import { sql, type SQL } from "drizzle-orm";
 
+import { representativePrinting } from "@/lib/cards/art";
 import { getDb } from "@/lib/db";
 
 import {
@@ -127,6 +128,21 @@ export type DeckListRow = {
    */
   sideboardCount: number;
   commanderNames: string[];
+  /**
+   * A printing to draw the deck's art from, or null.
+   *
+   * The deck's identity on a list is its commander, and a commander is a
+   * picture before it is a name. This is the printing whose `art_crop` the
+   * deck row and the deck page use as their banner.
+   *
+   * It prefers the printing the deck actually names — if you chose the
+   * Secret Lair Dogmeat, that is the Dogmeat you should see — and falls back
+   * to any English, non-extra printing of the same card, newest first, since
+   * `deck_cards.printing_id` is a nullable preference rather than a
+   * requirement. Null for a cube, and for a commander deck with no commander
+   * picked yet.
+   */
+  artPrintingId: string | null;
   colorIdentity: string[];
   /** Copies of the deck's cards owned, capped at what the deck needs. */
   ownedCopies: number;
@@ -148,6 +164,7 @@ export async function listDecks(): Promise<DeckListRow[]> {
     card_count: number;
     sideboard_count: number;
     commander_names: string[] | null;
+    art_printing_id: string | null;
     color_identity: string[] | null;
     owned_copies: number;
     allocated_copies: number;
@@ -186,6 +203,25 @@ export async function listDecks(): Promise<DeckListRow[]> {
                JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
               WHERE dc.deck_id = d.id AND dc.board = 'commander'
            ), '{}') AS commander_names,
+           (
+             /*
+              * One printing of one commander, for the row's art.
+              *
+              * The deck's own printing_id wins when it has one; otherwise
+              * the shared fallback in lib/cards/art.ts picks a printing. The
+              * name ordering only matters for a partner pair, where it makes
+              * the choice stable rather than whichever row came back first.
+              */
+             SELECT coalesce(
+                      dc.printing_id,
+                      ${representativePrinting(sql`dc.oracle_id`)}
+                    )::text
+               FROM deck_cards dc
+               JOIN oracle_cards o ON o.oracle_id = dc.oracle_id
+              WHERE dc.deck_id = d.id AND dc.board = 'commander'
+              ORDER BY o.name
+              LIMIT 1
+           ) AS art_printing_id,
            coalesce((
              SELECT array_agg(DISTINCT ci)
                FROM deck_cards dc
@@ -217,6 +253,7 @@ export async function listDecks(): Promise<DeckListRow[]> {
       cardCount: r.card_count,
       sideboardCount: r.sideboard_count,
       commanderNames: r.commander_names ?? [],
+      artPrintingId: r.art_printing_id,
       colorIdentity: r.color_identity ?? [],
       ownedCopies: r.owned_copies,
       allocatedCopies: r.allocated_copies,

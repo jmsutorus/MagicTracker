@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState, useTransition } from "react";
 
 import { moveItemsAction, removeItemsAction } from "@/app/collection/actions";
+import { CardArt } from "@/components/card-art";
 import { CardLink } from "@/components/card-link";
 import { CollectionRowControls } from "@/components/collection-row-controls";
 import type { CollectionRow } from "@/lib/collection/queries";
@@ -224,14 +225,14 @@ export function CollectionTable({
                   className="cursor-pointer accent-[var(--accent)]"
                 />
               </th>
-              <th className="px-4 py-2 font-medium">
+              {/* The art column has no heading: it is the card, and "Card"
+                  is already the heading of the name beside it. */}
+              <th className="w-12 px-0 py-2" />
+              <th className="px-3 py-2 font-medium">
                 {sortLink("Card", "name", "name-desc")}
               </th>
               <th className="px-4 py-2 font-medium">
                 {sortLink("Set", "set")}
-              </th>
-              <th className="hidden px-4 py-2 font-medium sm:table-cell">
-                Finish
               </th>
               <th className="hidden px-4 py-2 text-right font-medium md:table-cell">
                 {sortLink("Value", "value")}
@@ -260,7 +261,10 @@ export function CollectionTable({
                       className="mt-1 cursor-pointer accent-[var(--accent)]"
                     />
                   </td>
-                  <td className="px-4 py-2 align-top">
+                  <td className="py-2 pl-0 pr-2 align-top">
+                    <CardArt printingId={row.printingId} />
+                  </td>
+                  <td className="px-3 py-2 align-top">
                     {/* Hover or focus the name to see the card, without
                         leaving a hundred-row page to find out which
                         printing you are looking at. */}
@@ -271,6 +275,26 @@ export function CollectionTable({
                     />
                     <span className="block text-xs text-muted">
                       {row.typeLine ?? ""}
+                      {/*
+                        Finish and condition, only when they are not the
+                        ordinary case.
+
+                        These had a column each, which meant every one of
+                        several hundred rows printed "—" for "not foil" and
+                        "NM" for "the condition almost every card is in". A
+                        column that says the same thing on every row is a
+                        column nobody reads, and it made the two rows that
+                        *were* foil impossible to spot. Said only when true,
+                        "Foil" is information.
+                      */}
+                      {row.finish !== "nonfoil" ? (
+                        <span className="ml-1.5 text-accent">
+                          {row.finish === "etched" ? "Etched" : "Foil"}
+                        </span>
+                      ) : null}
+                      {row.condition !== "NM" ? (
+                        <span className="ml-1.5">{row.condition}</span>
+                      ) : null}
                     </span>
                   </td>
                   <td className="px-4 py-2 align-top">
@@ -282,14 +306,6 @@ export function CollectionTable({
                     </span>
                     <span className="block text-xs text-muted">
                       {row.rarity}
-                    </span>
-                  </td>
-                  <td className="hidden px-4 py-2 align-top sm:table-cell">
-                    <span className="text-xs">
-                      {row.finish === "nonfoil" ? "—" : row.finish}
-                    </span>
-                    <span className="block text-xs text-muted">
-                      {row.condition}
                     </span>
                   </td>
                   <td className="hidden px-4 py-2 text-right align-top md:table-cell">

@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
+import { CardArt } from "@/components/card-art";
 import { ManaCost } from "@/components/mana-cost";
 import { PurchaseButtons } from "@/components/purchase-buttons";
 import { WishlistAdd } from "@/components/wishlist-add";
@@ -52,10 +54,6 @@ export default async function WishlistPage() {
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8">
         <h1 className="text-2xl font-semibold tracking-tight">Wishlist</h1>
-        <p className="mt-2 text-sm text-muted">
-          Cards you want that aren&rsquo;t tied to a set you&rsquo;re completing
-          or a deck you&rsquo;ve built.
-        </p>
 
         <section className="mt-6 rounded-lg border border-border bg-surface p-5">
           <WishlistAdd />
@@ -110,8 +108,14 @@ export default async function WishlistPage() {
                 return (
                   <li
                     key={row.id}
-                    className="rounded-lg border border-border bg-surface px-4 py-3"
+                    className="flex gap-3 rounded-lg border border-border bg-surface p-3"
                   >
+                    <CardArt
+                      printingId={row.artPrintingId}
+                      className="h-12 w-12"
+                    />
+
+                    <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                       <Link
                         href={`/cards/${row.oracleId}`}
@@ -150,6 +154,7 @@ export default async function WishlistPage() {
                     {row.note ? (
                       <p className="mt-2 text-xs text-muted">{row.note}</p>
                     ) : null}
+                    </div>
                   </li>
                 );
               })}
@@ -157,6 +162,8 @@ export default async function WishlistPage() {
           </>
         )}
       </main>
+
+      <AppFooter />
     </div>
   );
 }

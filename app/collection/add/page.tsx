@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { CollectionEntry } from "@/components/collection-entry";
 import { requireUser } from "@/lib/auth/dal";
@@ -69,6 +70,8 @@ export default async function AddCardsPage() {
           />
         </div>
       </main>
+
+      <AppFooter />
     </div>
   );
 }

@@ -1,13 +1,13 @@
 import Link from "next/link";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
+import { CardArt, SetSymbol } from "@/components/card-art";
 import { ProgressBar } from "@/components/progress-bar";
 import { requireUser } from "@/lib/auth/dal";
 import { getCollectionTotals } from "@/lib/collection/queries";
 import { listSetProgress } from "@/lib/completion/queries";
-import { getDbStatus } from "@/lib/db/status";
 import { listDecks } from "@/lib/decks/queries";
-import { getLastBackup } from "@/lib/export/build";
 import { formatCents, formatCentsDelta } from "@/lib/prices/constants";
 import { formatPercent, percentChange } from "@/lib/prices/project";
 import { getValueTotals } from "@/lib/prices/queries";
@@ -18,11 +18,11 @@ import { listWishlist } from "@/lib/wishlist/queries";
  *
  * It answers three questions in order: what do I have, what am I partway
  * through, and what do I want to do next. What it deliberately does *not*
- * lead with is how the software is doing — the Postgres version, the
- * extension list and the migration count were the whole page while Phase 0
- * was the only phase, and they are diagnostics, not a dashboard. They are
- * still here, one click down, because the one failure this page cannot hide
- * is the database being unreachable.
+ * carry is how the software is doing — the Postgres version, the extension
+ * list, the migration count and the backup bucket were the whole page while
+ * Phase 0 was the only phase. They live on /status now, linked from the
+ * footer, because the one failure this page cannot report is the database
+ * being unreachable.
  */
 
 const NUMBER = new Intl.NumberFormat("en-US");
@@ -97,24 +97,21 @@ function SectionHeading({
 }
 
 export default async function DashboardPage() {
-  const user = await requireUser();
+  await requireUser();
 
   /*
-   * In parallel, not one after another. These are six independent round
-   * trips to a database that sleeps after five minutes idle, and awaiting
-   * them in sequence made the first load of the front door the slowest page
-   * in the app.
+   * In parallel, not one after another. These are independent round trips to
+   * a database that sleeps after five minutes idle, and awaiting them in
+   * sequence made the first load of the front door the slowest page in the
+   * app.
    */
-  const [totals, value, decks, sets, wishlist, backup, status] =
-    await Promise.all([
-      getCollectionTotals(),
-      getValueTotals(),
-      listDecks(),
-      listSetProgress(),
-      listWishlist(),
-      getLastBackup(),
-      getDbStatus(),
-    ]);
+  const [totals, value, decks, sets, wishlist] = await Promise.all([
+    getCollectionTotals(),
+    getValueTotals(),
+    listDecks(),
+    listSetProgress(),
+    listWishlist(),
+  ]);
 
   const valueDelta =
     value.previousCents === null
@@ -209,9 +206,7 @@ export default async function DashboardPage() {
                 <>
                   <p className="mt-1 text-2xl font-semibold text-muted">—</p>
                   <p className="text-xs text-muted">
-                    {empty
-                      ? "Priced once there are cards to price."
-                      : "The weekly job records the first snapshot on Monday."}
+                    {empty ? "Nothing to price yet." : "Not priced yet."}
                   </p>
                 </>
               ) : (
@@ -221,7 +216,9 @@ export default async function DashboardPage() {
                   </p>
                   <p className="text-xs text-muted">
                     {valueDelta === null ? (
-                      <>First snapshot, {value.asOf}.</>
+                      /* No previous reading to compare against, so the date
+                         is the whole story: this is where the line starts. */
+                      <>First reading, {value.asOf}.</>
                     ) : (
                       <>
                         <span
@@ -265,9 +262,8 @@ export default async function DashboardPage() {
                 }
               />
               <Stat
-                label="Sets complete"
+                label="Sets done"
                 value={`${NUMBER.format(completedSets.length)} / ${NUMBER.format(sets.length)}`}
-                hint="by your own scope rules"
               />
               <Stat
                 label="Still to buy"
@@ -418,24 +414,30 @@ export default async function DashboardPage() {
                       <li key={deck.id}>
                         <Link
                           href={`/decks/${deck.id}`}
-                          className="block rounded-lg border border-border bg-surface px-4 py-3 hover:border-accent"
+                          className="flex gap-3 rounded-lg border border-border bg-surface p-3 hover:border-accent"
                         >
-                          <div className="flex items-baseline gap-3">
-                            <span className="min-w-0 flex-1 truncate text-sm">
-                              {deck.name}
-                            </span>
-                            <span className="shrink-0 text-xs tabular-nums text-muted">
-                              {deck.ownedCopies} / {deck.cardCount} owned
-                            </span>
+                          <CardArt
+                            printingId={deck.artPrintingId}
+                            className="h-14 w-14"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline gap-3">
+                              <span className="min-w-0 flex-1 truncate text-sm">
+                                {deck.name}
+                              </span>
+                              <span className="shrink-0 text-xs tabular-nums text-muted">
+                                {deck.ownedCopies} / {deck.cardCount} owned
+                              </span>
+                            </div>
+                            <ProgressBar percent={percent} className="mt-2" />
+                            <p className="mt-1 truncate text-xs text-muted">
+                              {deck.format === "cube"
+                                ? `${deck.targetSize}-card cube`
+                                : deck.commanderNames.length > 0
+                                  ? deck.commanderNames.join(" + ")
+                                  : "no commander yet"}
+                            </p>
                           </div>
-                          <ProgressBar percent={percent} className="mt-2" />
-                          <p className="mt-1 truncate text-xs text-muted">
-                            {deck.format === "cube"
-                              ? `${deck.targetSize}-card cube`
-                              : deck.commanderNames.length > 0
-                                ? deck.commanderNames.join(" + ")
-                                : "no commander yet"}
-                          </p>
                         </Link>
                       </li>
                     );
@@ -461,21 +463,26 @@ export default async function DashboardPage() {
                         href={`/sets/${set.code}`}
                         className="block rounded-lg border border-border bg-surface px-4 py-3 hover:border-accent"
                       >
-                        <div className="flex items-baseline gap-3">
+                        <div className="flex items-center gap-3">
+                          <SetSymbol uri={set.iconSvgUri} code={set.code} />
                           <span className="min-w-0 flex-1 truncate text-sm">
                             {set.name}
-                          </span>
-                          <span className="shrink-0 font-mono text-xs uppercase text-muted">
-                            {set.code}
                           </span>
                           <span className="shrink-0 text-xs tabular-nums text-muted">
                             {set.percent}%
                           </span>
                         </div>
                         <ProgressBar percent={set.percent} className="mt-2" />
+                        {/* What is left, not what is done — the bar above
+                            already shows how far along it is, and "16 to go"
+                            is the number you act on. The price is omitted
+                            rather than shown as $0 when nothing missing is
+                            priced, because $0 would read as "free". */}
                         <p className="mt-1 text-xs tabular-nums text-muted">
-                          {NUMBER.format(set.owned)} of{" "}
-                          {NUMBER.format(set.target)} printings
+                          {NUMBER.format(set.missing)} to go
+                          {set.missingPriced > 0
+                            ? ` · ${formatCents(set.missingCents)}`
+                            : ""}
                         </p>
                       </Link>
                     </li>
@@ -486,136 +493,9 @@ export default async function DashboardPage() {
           </div>
         ) : null}
 
-        {/* ---- your data --------------------------------------------------- */}
-        <section className="rounded-lg border border-border bg-surface p-5">
-          <SectionHeading title="Your data" />
-          <p className="mt-3 text-sm text-muted">
-            One JSON file: locations, every collection row, every deck, and your
-            per-set completion rules — with card names beside the ids, so it is
-            worth something without this app. The card database is not in it;
-            that rebuilds from Scryfall in under a minute.
-          </p>
-          <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <a
-              href="/api/export"
-              className="text-sm underline underline-offset-4 hover:text-accent"
-            >
-              Download a copy
-            </a>
-            <p className="text-xs text-muted">
-              {backup === null ? (
-                <>The weekly job takes one automatically. None recorded yet.</>
-              ) : (
-                <>
-                  Last automatic backup {backup.startedAt.slice(0, 16)} —{" "}
-                  <span
-                    className={backup.status === "ok" ? "text-ok" : "text-bad"}
-                  >
-                    {backup.status}
-                  </span>
-                  {backup.destination ? (
-                    <>
-                      {" "}
-                      → <span className="font-mono">{backup.destination}</span>
-                    </>
-                  ) : null}
-                  .
-                </>
-              )}
-            </p>
-          </div>
-        </section>
-
-        {/* ---- diagnostics, folded away ------------------------------------ */}
-        <section>
-          <details
-            open={!status.reachable}
-            className="rounded-lg border border-border bg-surface-muted px-4 py-3"
-          >
-            {/*
-              Open by default when the database is unreachable. Every other
-              part of this page would be empty or wrong in that case, and a
-              collapsed section is exactly where nobody would look.
-            */}
-            <summary className="cursor-pointer text-sm text-muted">
-              System —{" "}
-              {status.reachable ? (
-                <>
-                  <span className="text-ok">database reachable</span>,{" "}
-                  {status.latencyMs} ms
-                </>
-              ) : (
-                <span className="text-bad">database unreachable</span>
-              )}
-            </summary>
-
-            <dl className="mt-3">
-              {status.reachable ? (
-                <>
-                  <StatusRow label="Server" value={status.serverVersion} />
-                  <StatusRow
-                    label="Round trip"
-                    value={`${status.latencyMs} ms`}
-                  />
-                  <StatusRow
-                    label="pg_trgm (fuzzy search)"
-                    value={
-                      status.pgTrgmInstalled ? "installed" : "not installed"
-                    }
-                    tone={status.pgTrgmInstalled ? "ok" : "warn"}
-                  />
-                  <StatusRow
-                    label="Migrations applied"
-                    value={String(status.migrationsApplied)}
-                    tone={status.migrationsApplied > 0 ? "ok" : "warn"}
-                  />
-                  <StatusRow
-                    label="Tables"
-                    value={String(status.tables.length)}
-                  />
-                </>
-              ) : (
-                <StatusRow label="Error" value={status.error} tone="bad" />
-              )}
-              <StatusRow label="Signed in as" value={user.email} />
-            </dl>
-
-            {status.reachable && status.latencyMs > 1000 ? (
-              <p className="mt-3 text-xs text-muted">
-                A slow first request is expected: Neon&apos;s free compute
-                suspends after 5 minutes idle and takes a few hundred ms to
-                wake.
-              </p>
-            ) : null}
-          </details>
-        </section>
       </main>
-    </div>
-  );
-}
 
-function StatusRow({
-  label,
-  value,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string;
-  tone?: "ok" | "bad" | "warn" | "neutral";
-}) {
-  const toneClass =
-    tone === "ok"
-      ? "text-ok"
-      : tone === "bad"
-        ? "text-bad"
-        : tone === "warn"
-          ? "text-warn"
-          : "text-foreground";
-
-  return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-border py-2 last:border-0">
-      <dt className="text-sm text-muted">{label}</dt>
-      <dd className={`text-right font-mono text-sm ${toneClass}`}>{value}</dd>
+      <AppFooter />
     </div>
   );
 }

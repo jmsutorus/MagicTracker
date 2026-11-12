@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { ProgressBar } from "@/components/progress-bar";
 import { requireUser } from "@/lib/auth/dal";
@@ -73,10 +74,7 @@ export default async function ProductsPage({
           Sealed products
         </h1>
         <p className="mt-2 text-sm text-muted">
-          Preconstructed decks with a known card list. Open one and its whole
-          contents go into your collection in a single step. Search the name on
-          the box — &ldquo;Multiverse Reforged Commander Deck&rdquo; finds it
-          just as well as &ldquo;multiverse&rdquo;.
+          Open a box and everything in it goes into your collection at once.
         </p>
 
         <form className="mt-6 flex flex-wrap items-end gap-3">
@@ -218,6 +216,8 @@ export default async function ProductsPage({
           </nav>
         ) : null}
       </main>
+
+      <AppFooter />
     </div>
   );
 }

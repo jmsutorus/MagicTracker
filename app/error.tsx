@@ -45,10 +45,14 @@ export default function ErrorPage({
         That page didn&rsquo;t load
       </h1>
 
+      {/* Why this stays infrastructural, where the rest of the app's copy
+          does not: the only useful thing to say about this failure is that
+          waiting a moment and retrying almost always fixes it, and that is
+          only believable if it says why. The hosting detail — which provider,
+          how long it idles — is the part that was cut. */}
       <p className="mt-3 text-sm text-muted">
-        Most often this is the database waking up — the free compute suspends
-        after five minutes idle, and the first request after that can time out.
-        Trying again usually works.
+        Most often this is the database waking up after an idle spell, and the
+        first request times out. Trying again usually works.
       </p>
 
       <div className="mt-6 flex flex-wrap items-center gap-4">

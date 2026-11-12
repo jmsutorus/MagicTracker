@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
+import { CardArt } from "@/components/card-art";
 import { DeckCreateForm } from "@/components/deck-create-form";
 import { ProgressBar } from "@/components/progress-bar";
 import { requireUser } from "@/lib/auth/dal";
@@ -25,10 +27,6 @@ export default async function DecksPage() {
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8">
         <h1 className="text-2xl font-semibold tracking-tight">Decks</h1>
-        <p className="mt-2 text-sm text-muted">
-          Commander and Standard decks, checked against their rules, and cubes,
-          checked against the size you set — all against what you own.
-        </p>
 
         <div className="mt-6">
           <DeckCreateForm />
@@ -69,8 +67,18 @@ export default async function DecksPage() {
                 <li key={deck.id}>
                   <Link
                     href={`/decks/${deck.id}`}
-                    className="block rounded-lg border border-border bg-surface px-4 py-3 hover:border-accent"
+                    className="flex gap-3 rounded-lg border border-border bg-surface p-3 hover:border-accent"
                   >
+                    {/* A tile, not a banner. One deck page gets a wide strip
+                        of its commander's art; twenty of them stacked in a
+                        list would be a wall of pictures with the names lost
+                        between them. */}
+                    <CardArt
+                      printingId={deck.artPrintingId}
+                      className="h-14 w-14"
+                    />
+
+                    <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                       <span className="min-w-0 flex-1 truncate">
                         {deck.name}
@@ -125,6 +133,7 @@ export default async function DecksPage() {
                           ? ` · ${deck.locationName}`
                           : ""}
                     </div>
+                    </div>
                   </Link>
                 </li>
               );
@@ -132,6 +141,8 @@ export default async function DecksPage() {
           </ul>
         )}
       </main>
+
+      <AppFooter />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { CardPurchaseLinks } from "@/components/card-purchase-links";
 import { ColorIdentity, ManaCost } from "@/components/mana-cost";
@@ -184,7 +185,7 @@ export default async function CardDetailPage({
           </h2>
 
           <p className="mt-1 text-xs text-muted">
-            Every printing in the card database. Add one from the search on{" "}
+            Every version of this card. Add one from the search on{" "}
             <Link
               href="/collection/add"
               className="underline underline-offset-4 hover:text-foreground"
@@ -249,6 +250,8 @@ export default async function CardDetailPage({
           </ul>
         </section>
       </main>
+
+      <AppFooter />
     </div>
   );
 }

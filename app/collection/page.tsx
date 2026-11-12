@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { CollectionFilters } from "@/components/collection-filters";
 import { CollectionTable } from "@/components/collection-table";
@@ -111,12 +112,23 @@ export default async function CollectionPage({
           </p>
         ) : (
           <>
-            <dl className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Stat label="Cards" value={totals.totalCopies} />
-              <Stat label="Distinct printings" value={totals.distinctPrintings} />
-              <Stat label="Distinct cards" value={totals.distinctCards} />
-              <Stat label="Foils" value={totals.foilCopies} />
-            </dl>
+            {/*
+              One line, not four boxed tiles.
+
+              The tiles were the first thing on the page and the last thing
+              anyone came for — you open your collection to look at cards, and
+              the headline number is already on the dashboard. "Distinct
+              printings" is gone outright: it is a row count from the schema,
+              and nobody has ever wanted to know it separately from "distinct
+              cards".
+            */}
+            <p className="mt-2 text-sm text-muted tabular-nums">
+              {totals.totalCopies.toLocaleString()} cards ·{" "}
+              {totals.distinctCards.toLocaleString()} distinct
+              {totals.foilCopies > 0
+                ? ` · ${totals.foilCopies.toLocaleString()} foil`
+                : ""}
+            </p>
 
             <CollectionFilters
               sets={collectedSets}
@@ -127,11 +139,19 @@ export default async function CollectionPage({
               }))}
             />
 
-            <p className="mt-4 text-sm text-muted">
-              {filtered
-                ? `${result.matchingCopies.toLocaleString()} card${result.matchingCopies === 1 ? "" : "s"} in ${result.matchingRows.toLocaleString()} row${result.matchingRows === 1 ? "" : "s"} match.`
-                : `${result.matchingRows.toLocaleString()} row${result.matchingRows === 1 ? "" : "s"}.`}
-            </p>
+            {/*
+              Only when filtered. Unfiltered it said "580 rows." above a
+              table of 580 rows — a count of something the database calls a
+              row, answering nothing. Filtered, it is the one thing the table
+              cannot show you, because the matches you are judging run past
+              the bottom of the page.
+            */}
+            {filtered ? (
+              <p className="mt-4 text-sm text-muted tabular-nums">
+                {result.matchingCopies.toLocaleString()}{" "}
+                {result.matchingCopies === 1 ? "card" : "cards"} match.
+              </p>
+            ) : null}
 
             {result.rows.length === 0 ? (
               <p className="mt-6 rounded-lg border border-border bg-surface p-5 text-sm text-muted">
@@ -174,15 +194,8 @@ export default async function CollectionPage({
           </>
         )}
       </main>
-    </div>
-  );
-}
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border border-border bg-surface px-4 py-3">
-      <dt className="text-xs uppercase tracking-wide text-muted">{label}</dt>
-      <dd className="mt-1 text-xl font-semibold">{value.toLocaleString()}</dd>
+      <AppFooter />
     </div>
   );
 }

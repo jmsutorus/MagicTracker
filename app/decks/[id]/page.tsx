@@ -2,7 +2,9 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
+import { CardArtBanner } from "@/components/card-art";
 import { CubeReportPanel } from "@/components/cube-report";
 import { CubeSizeForm } from "@/components/cube-size-form";
 import { DeckEditor } from "@/components/deck-editor";
@@ -67,6 +69,15 @@ export default async function DeckPage({
   const neededCopies = deck.missing.reduce((n, m) => n + m.need, 0);
   const allocatedCount = deck.cards.filter((c) => c.isAllocated).length;
 
+  /*
+   * The first commander's art, for the banner. `imageId` is already the
+   * pinned printing or a representative one, so there is nothing to resolve
+   * here — a cube and a commander deck with no commander yet both land on
+   * null, which is the banner's "render nothing" case.
+   */
+  const commanderArt =
+    deck.cards.find((c) => c.board === "commander")?.imageId ?? null;
+
   return (
     <div className="flex flex-1 flex-col">
       <AppHeader current="decks" />
@@ -79,7 +90,18 @@ export default async function DeckPage({
           ← All decks
         </Link>
 
-        <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        {/*
+          The deck's own art, where it has one.
+
+          A commander IS the deck as far as anyone who plays it is concerned,
+          and the page that was here opened with a line of text and a verdict
+          panel. A cube has no commander and gets no banner — see
+          CardArtBanner, which renders its children bare rather than reserving
+          an empty strip.
+        */}
+        <div className="mt-3">
+        <CardArtBanner printingId={commanderArt}>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">{deck.name}</h1>
           {deck.verdict.kind === "commander" ? (
             /* Pips, not "WUB": the deck's colours are the first thing a
@@ -96,6 +118,8 @@ export default async function DeckPage({
                 : `${deck.targetSize} cards`}
             </span>
           )}
+        </div>
+        </CardArtBanner>
         </div>
 
         {/* ---- the verdict ----------------------------------------------- */}
@@ -258,6 +282,8 @@ export default async function DeckPage({
           </p>
         ) : null}
       </main>
+
+      <AppFooter />
     </div>
   );
 }

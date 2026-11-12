@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 
+import { CardArt } from "@/components/card-art";
 import { ManaCost } from "@/components/mana-cost";
 import type { CardSearchResult } from "@/lib/cards/search";
 
@@ -170,10 +171,14 @@ export function HeaderSearch() {
               aria-selected={index === activeIndex}
               onMouseEnter={() => setActiveIndex(index)}
               onClick={() => go(result)}
-              className={`flex cursor-pointer items-baseline gap-2 border-b border-border px-3 py-2 last:border-0 ${
+              className={`flex cursor-pointer items-center gap-2 border-b border-border px-3 py-2 last:border-0 ${
                 index === activeIndex ? "bg-surface-muted" : ""
               }`}
             >
+              <CardArt
+                printingId={result.newestPrintingId}
+                className="h-6 w-8"
+              />
               <span className="min-w-0 flex-1 truncate text-sm">
                 {result.name}
               </span>

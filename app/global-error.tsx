@@ -7,9 +7,37 @@
  *
  * It replaces the root layout, so it has to bring its own <html> and <body> —
  * and it cannot rely on the stylesheet or the font variables that layout
- * sets up. Hence the inline styles and the literal hex values rather than the
- * design tokens: this file has to render correctly when nothing else does.
+ * sets up. Hence the literal values rather than the design tokens: this file
+ * has to render correctly when nothing else does.
+ *
+ * The tokens are declared in a <style> tag rather than written straight into
+ * the inline styles so this page still follows the colour scheme. The app is
+ * dark-first, and a white flash on a crash is the one place it would be most
+ * jarring — the failure should look like the app, not like a raw browser
+ * default.
  */
+
+const TOKENS = `
+  :root {
+    --bg: #fafafa;
+    --fg: #18181b;
+    --muted: #71717a;
+    --accent: #7d6210;
+    --accent-contrast: #ffffff;
+    --bad: #b03a30;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0a0a0b;
+      --fg: #ededee;
+      --muted: #8a8a92;
+      --accent: #e6c45f;
+      --accent-contrast: #0a0a0b;
+      --bad: #e05a4e;
+    }
+  }
+`;
+
 export default function GlobalError({
   error,
   retry,
@@ -30,16 +58,23 @@ export default function GlobalError({
           alignItems: "center",
           justifyContent: "center",
           padding: "2rem",
-          background: "#fbfaf8",
-          color: "#1c1a17",
+          background: "var(--bg)",
+          color: "var(--fg)",
           fontFamily: "ui-sans-serif, system-ui, sans-serif",
         }}
       >
+        <style dangerouslySetInnerHTML={{ __html: TOKENS }} />
         <div style={{ maxWidth: "32rem" }}>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 600, margin: 0 }}>
             MagicTracker couldn&rsquo;t start
           </h1>
-          <p style={{ marginTop: "0.75rem", fontSize: "0.875rem", color: "#6b655c" }}>
+          <p
+            style={{
+              marginTop: "0.75rem",
+              fontSize: "0.875rem",
+              color: "var(--muted)",
+            }}
+          >
             Something failed before the app could render. Your collection
             isn&rsquo;t affected — this is the page, not the data.
           </p>
@@ -51,8 +86,8 @@ export default function GlobalError({
               cursor: "pointer",
               borderRadius: "0.5rem",
               border: "none",
-              background: "#8a5a2b",
-              color: "#ffffff",
+              background: "var(--accent)",
+              color: "var(--accent-contrast)",
               padding: "0.625rem 1rem",
               fontSize: "0.875rem",
               fontWeight: 500,
@@ -65,7 +100,7 @@ export default function GlobalError({
               marginTop: "2rem",
               fontFamily: "ui-monospace, monospace",
               fontSize: "0.75rem",
-              color: "#9b2c2c",
+              color: "var(--bad)",
               wordBreak: "break-word",
             }}
           >

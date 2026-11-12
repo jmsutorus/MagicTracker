@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
+import { CardArt } from "@/components/card-art";
 import { CardLink } from "@/components/card-link";
 import { CompletionScopeForm } from "@/components/completion-scope-form";
 import { ManaCost } from "@/components/mana-cost";
@@ -195,7 +197,10 @@ export default async function SetCompletionPage({
                   <thead>
                     <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
                       <th className="px-4 py-2 font-medium">#</th>
-                      <th className="px-4 py-2 font-medium">Card</th>
+                      {/* No heading: the art is the card, and "Card" is
+                          already the heading of the name beside it. */}
+                      <th className="w-12 px-0 py-2" />
+                      <th className="px-3 py-2 font-medium">Card</th>
                       <th className="hidden px-4 py-2 font-medium sm:table-cell">
                         Cost
                       </th>
@@ -214,7 +219,10 @@ export default async function SetCompletionPage({
                         <td className="px-4 py-2 font-mono text-xs text-muted">
                           {card.collectorNumber}
                         </td>
-                        <td className="px-4 py-2">
+                        <td className="py-2 pl-0 pr-2">
+                          <CardArt printingId={card.scryfallId} />
+                        </td>
+                        <td className="px-3 py-2">
                           {/* The missing-cards list is exactly where you want
                               to see the card without navigating: these are
                               printings you are deciding whether to buy. */}
@@ -244,6 +252,8 @@ export default async function SetCompletionPage({
           )}
         </section>
       </main>
+
+      <AppFooter />
     </div>
   );
 }

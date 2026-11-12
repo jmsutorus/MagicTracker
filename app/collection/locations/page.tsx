@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { LocationsManager } from "@/components/locations-manager";
 import { requireUser } from "@/lib/auth/dal";
@@ -39,6 +40,8 @@ export default async function LocationsPage() {
           <LocationsManager locations={locations} />
         </div>
       </main>
+
+      <AppFooter />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 
+import { representativePrinting } from "@/lib/cards/art";
 import { getDb } from "@/lib/db";
 
 /**
@@ -24,6 +25,16 @@ export type WishlistRow = {
 
   /** Null when the row means "any printing". */
   printingId: string | null;
+
+  /**
+   * A printing to draw the row's art from — never null for a real card.
+   *
+   * Separate from `printingId` because that one is a statement about what you
+   * want ("any Sol Ring" is a different want from "the Secret Lair one") and
+   * this one is only about which picture to show. Collapsing them would turn
+   * rendering a thumbnail into a claim about the row.
+   */
+  artPrintingId: string | null;
   setCode: string | null;
   setName: string | null;
   collectorNumber: string | null;
@@ -120,6 +131,7 @@ export async function listWishlist(): Promise<WishlistSummary> {
     note: string | null;
     created_at: string;
     printing_id: string | null;
+    art_printing_id: string | null;
     set_code: string | null;
     set_name: string | null;
     collector_number: string | null;
@@ -137,6 +149,10 @@ export async function listWishlist(): Promise<WishlistSummary> {
            w.note,
            w.created_at::text    AS created_at,
            w.printing_id::text   AS printing_id,
+           coalesce(
+             w.printing_id,
+             ${representativePrinting(sql`w.oracle_id`)}
+           )::text               AS art_printing_id,
            pr.set_code,
            s.name                AS set_name,
            pr.collector_number,
@@ -161,6 +177,7 @@ export async function listWishlist(): Promise<WishlistSummary> {
     note: r.note,
     createdAt: r.created_at,
     printingId: r.printing_id,
+    artPrintingId: r.art_printing_id,
     setCode: r.set_code,
     setName: r.set_name,
     collectorNumber: r.collector_number,

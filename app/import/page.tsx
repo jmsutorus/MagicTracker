@@ -1,3 +1,4 @@
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { ImportPaste } from "@/components/import-paste";
 import { requireUser } from "@/lib/auth/dal";
@@ -24,10 +25,11 @@ export default async function ImportPage() {
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8">
         <h1 className="text-2xl font-semibold tracking-tight">Import a list</h1>
+        {/* Kept, unlike the other page subtitles: this one faces an empty
+            textarea and answers "what am I supposed to paste here", which
+            the page cannot answer by showing its contents. */}
         <p className="mt-2 text-sm text-muted">
-          Paste a decklist or a CSV export. You see what it means before
-          anything is stored — which cards you already own, which you would have
-          to buy, and which lines could not be placed.
+          Paste a decklist or a CSV export. Nothing is stored until you say so.
         </p>
 
         <div className="mt-6">
@@ -81,6 +83,8 @@ export default async function ImportPage() {
           </ul>
         </section>
       </main>
+
+      <AppFooter />
     </div>
   );
 }

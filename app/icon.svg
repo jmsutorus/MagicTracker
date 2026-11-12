@@ -6,14 +6,19 @@
 
     Three flat tones and one stroke: anything finer disappears at the 16px a
     browser tab actually draws this at.
+
+    Obsidian: a hueless near-black tile, a bright card, and the one warm
+    thing in the app — gold — carrying the check. The gold is a deeper step
+    than the interface accent (#e6c45f), which is tuned to sit on a dark
+    surface and would wash out against the near-white card.
   -->
-  <rect width="512" height="512" rx="112" fill="#8a5a2b" />
+  <rect width="512" height="512" rx="112" fill="#18181b" />
   <g transform="rotate(-8 256 256)">
-    <rect x="152" y="112" width="208" height="288" rx="22" fill="#faf7f1" />
+    <rect x="152" y="112" width="208" height="288" rx="22" fill="#ededee" />
     <path
       d="M202 266 L240 306 L314 210"
       fill="none"
-      stroke="#8a5a2b"
+      stroke="#a07c14"
       stroke-width="34"
       stroke-linecap="round"
       stroke-linejoin="round"

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import {
   ProductAddForm,
@@ -183,6 +184,8 @@ export default async function ProductPage({
           </>
         )}
       </main>
+
+      <AppFooter />
     </div>
   );
 }

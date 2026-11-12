@@ -32,8 +32,8 @@ export default function manifest(): MetadataRoute.Manifest {
     // The light surface from globals.css, matching the `theme-color` meta in
     // app/layout.tsx — the splash screen and the task switcher should look
     // like the app, not like its accent.
-    background_color: "#fbfaf8",
-    theme_color: "#fbfaf8",
+    background_color: "#fafafa",
+    theme_color: "#fafafa",
     icons: [
       { src: "/icon.svg", sizes: "any", type: "image/svg+xml" },
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },

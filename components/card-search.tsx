@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { CardArt } from "@/components/card-art";
 import { ManaCost } from "@/components/mana-cost";
 import type { CardSearchResult } from "@/lib/cards/search";
 
@@ -165,10 +166,11 @@ export function CardSearch() {
               aria-selected={index === activeIndex}
               onMouseEnter={() => setActiveIndex(index)}
               onClick={() => openCard(result)}
-              className={`flex cursor-pointer items-baseline gap-3 border-b border-border px-4 py-2.5 last:border-0 ${
+              className={`flex cursor-pointer items-center gap-3 border-b border-border px-4 py-2.5 last:border-0 ${
                 index === activeIndex ? "bg-surface-muted" : ""
               }`}
             >
+              <CardArt printingId={result.newestPrintingId} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate">{result.name}</span>
                 <span className="block truncate text-xs text-muted">

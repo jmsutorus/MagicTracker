@@ -1,27 +1,57 @@
 @import "tailwindcss";
 
+/*
+ * OBSIDIAN
+ *
+ * A strictly neutral gray chassis carrying one warm accent. The neutrals have
+ * no hue at all — #0a0a0b, #141416, #ededee — which is what lets gold, the
+ * five mana colours and the three status colours each read as a deliberate
+ * signal rather than as one more warm thing on a warm page.
+ *
+ * It is a DARK-FIRST identity, and light mode is the honest counterpart
+ * rather than a mirror: see the note on --accent below.
+ */
 :root {
-  --background: #fbfaf8;
+  --background: #fafafa;
   --surface: #ffffff;
-  --surface-muted: #f3f1ec;
-  --border: #e2ded5;
-  --foreground: #1c1a17;
-  --muted: #6b655c;
-  --accent: #8a5a2b;
+  --surface-muted: #f4f4f5;
+  --border: #e4e4e7;
+  --foreground: #18181b;
+  --muted: #71717a;
+
+  /*
+   * Gold on dark; bronze on light.
+   *
+   * This is the one place the two modes do not share an identity, and it is
+   * forced rather than chosen: a solid button needs its label to survive on
+   * it, and no step light enough to still read as "gold" clears that bar
+   * against white. Darkening it until it does lands on bronze. The
+   * alternative — a gold button with gray text — fails the same check from
+   * the other side.
+   */
+  --accent: #7d6210;
   --accent-contrast: #ffffff;
-  --ok: #2f6f46;
-  --warn: #8a6d1f;
-  --bad: #9b2c2c;
+
+  --ok: #2f7d4f;
+  /*
+   * Warning is ORANGE, not the amber it wants to be.
+   *
+   * With a gold accent, amber-yellow is the accent, and "1 warning" sitting
+   * beside an Add cards button in the same colour makes the warning read as
+   * decoration. Pushing warn toward orange is what keeps "this is a control"
+   * and "this needs your attention" distinguishable without reading them.
+   */
+  --warn: #b4541a;
+  --bad: #b03a30;
 
   /*
    * The chart series colour: the brand hue, snapped to a step a chart mark can
-   * use. --accent itself fails the checks a plotted mark has to pass (its
-   * chroma reads gray at chart size, and its dark counterpart sits above the
-   * lightness band for a dark surface), so the chart gets its own token and
-   * each mode gets its own step rather than one colour flipped. Both were run
-   * through the palette validator against the real surfaces.
+   * use. --accent itself fails the checks a plotted mark has to pass (at chart
+   * size the bronze reads as a muddy brown line, and the dark mode gold sits
+   * above the lightness band), so the chart gets its own token and each mode
+   * gets its own step rather than one colour flipped.
    */
-  --chart-line: #a86a2b;
+  --chart-line: #96741a;
 
   /*
    * THE FIVE MANA COLOURS
@@ -35,6 +65,11 @@
    * The order is WUBRG, which is the game's own fixed order and so is also the
    * fixed hue order the categorical checks require — assignment never skips
    * and never cycles.
+   *
+   * The dark steps were validated against the old warm surface (#1d1b16).
+   * Obsidian's surface is #141416 — darker and hueless — which only widens
+   * the gap on every check, so the steps are kept as they were rather than
+   * re-derived against a surface they already clear by more.
    *
    * Both modes pass the lightness band, the chroma floor, the normal-vision
    * floor (>= 15: light 17.0, dark 15.2) and 3:1 contrast. Both carry one
@@ -59,18 +94,19 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #14130f;
-    --surface: #1d1b16;
-    --surface-muted: #262319;
-    --border: #35312a;
-    --foreground: #ece8e0;
-    --muted: #9c948a;
-    --accent: #d9a05b;
-    --accent-contrast: #1c1a17;
-    --ok: #6fbf8b;
-    --warn: #d9bd6b;
-    --bad: #e08a86;
-    --chart-line: #c5803b;
+    --background: #0a0a0b;
+    --surface: #141416;
+    --surface-muted: #1c1c1f;
+    --border: #292a2e;
+    --foreground: #ededee;
+    --muted: #8a8a92;
+    --accent: #e6c45f;
+    --accent-contrast: #0a0a0b;
+    --ok: #4fb37a;
+    /* Orange, for the reason given in light mode. */
+    --warn: #dd8c3f;
+    --bad: #e05a4e;
+    --chart-line: #ddbd63;
 
     /* Own steps for the dark surface — see the note above. */
     --mana-w: #b18f33;
@@ -133,5 +169,28 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .skeleton {
     animation: none;
+  }
+}
+
+/*
+ * Set symbols.
+ *
+ * Scryfall serves these as black-on-transparent SVGs, which on a near-black
+ * surface is a black smudge. Inverting is the whole fix — they are
+ * single-colour marks, so there is no hue to get wrong — and it is a class
+ * rather than an inline style on the element because the branch is a media
+ * query, which an inline style cannot express.
+ *
+ * Both modes stop short of full strength: at 16px a pure-black or pure-white
+ * glyph out-shouts the set name beside it, which is the thing being read.
+ */
+.set-symbol {
+  opacity: 0.75;
+}
+
+@media (prefers-color-scheme: dark) {
+  .set-symbol {
+    filter: invert(1);
+    opacity: 0.7;
   }
 }

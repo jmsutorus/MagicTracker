@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { ValueChart } from "@/components/value-chart";
 import { requireUser } from "@/lib/auth/dal";
@@ -12,7 +13,6 @@ import {
 import { formatPercent, percentChange } from "@/lib/prices/project";
 import {
   getAcquisitionSummary,
-  getLastPriceRun,
   getMostValuable,
   getMovers,
   getValueHistory,
@@ -111,15 +111,16 @@ function MoversList({ rows, title }: { rows: MoverRow[]; title: string }) {
 export default async function ValuePage() {
   await requireUser();
 
-  const [totals, history, movers, acquisition, valuable, lastRun] =
-    await Promise.all([
-      getValueTotals(),
-      getValueHistory(),
-      getMovers(),
-      getAcquisitionSummary(),
-      getMostValuable(),
-      getLastPriceRun(),
-    ]);
+  /* getLastPriceRun() is no longer read here — when the last pricing run
+     happened is a question for /status, not for a page about what the
+     collection is worth. */
+  const [totals, history, movers, acquisition, valuable] = await Promise.all([
+    getValueTotals(),
+    getValueHistory(),
+    getMovers(),
+    getAcquisitionSummary(),
+    getMostValuable(),
+  ]);
 
   const delta =
     totals.previousCents === null
@@ -143,11 +144,14 @@ export default async function ValuePage() {
       <main className="mx-auto w-full max-w-4xl flex-1 space-y-6 px-4 py-8">
         <section>
           <h1 className="text-2xl font-semibold tracking-tight">Value</h1>
+          {/* One caveat, kept: the number is for a near-mint copy whatever
+              condition you actually entered, and a reader who does not know
+              that will read it as worth more than it is. The rest of the old
+              paragraph explained where the data comes from and how often it
+              refreshes, which changes nothing anyone would do. */}
           <p className="mt-2 text-sm text-muted">
-            Market price for a near-mint copy, from Scryfall, recorded once a
-            week. Condition is not discounted — the tracker knows what condition
-            you entered, but inventing a multiplier for it would be making up
-            numbers.
+            Near-mint market price, recorded weekly. Condition isn&rsquo;t
+            discounted.
           </p>
         </section>
 
@@ -156,18 +160,21 @@ export default async function ValuePage() {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
               No snapshot yet
             </h2>
+            {/*
+              What this said before: which job writes the snapshots, which
+              day it runs, the npm command to run one by hand, and the raw
+              `started_at` of the last attempt with its row count. That is
+              the operator's view of a cron job, on a page about what a
+              collection is worth — and the command is only actionable by
+              whoever deployed this. The failure case still has somewhere to
+              go: /status reports when the last run was and whether it
+              worked.
+            */}
             <p className="mt-3 text-sm text-muted">
-              The weekly job prices the printings you own and records a total.
-              Nothing has been recorded yet, so there is no value to show. It
-              runs on Mondays; <code className="font-mono">npm run</code>{" "}
-              <code className="font-mono">ingest:prices</code> takes one now.
+              Prices are recorded once a week. The first one lands next
+              Monday, and the chart starts the week after — a line needs two
+              points.
             </p>
-            {lastRun ? (
-              <p className="mt-3 text-sm text-muted">
-                Last attempt {lastRun.startedAt} — {lastRun.status}
-                {lastRun.rowCount === null ? "" : `, ${lastRun.rowCount} rows`}.
-              </p>
-            ) : null}
           </section>
         ) : (
           <>
@@ -354,6 +361,8 @@ export default async function ValuePage() {
           </>
         )}
       </main>
+
+      <AppFooter />
     </div>
   );
 }

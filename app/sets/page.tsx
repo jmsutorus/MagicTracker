@@ -1,6 +1,8 @@
 import Link from "next/link";
 
+import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
+import { SetSymbol } from "@/components/card-art";
 import { ProgressBar } from "@/components/progress-bar";
 import { requireUser } from "@/lib/auth/dal";
 import {
@@ -95,7 +97,6 @@ export default async function SetsPage({
   ]);
 
   const progress = sortProgress(unsorted, sort);
-  const complete = progress.filter((p) => p.target > 0 && p.owned >= p.target);
   const outstanding = progress.filter((p) => p.missing > 0);
   const toFinish = outstanding.reduce((n, p) => n + p.missingCents, 0);
   const unpriced = outstanding.reduce(
@@ -109,11 +110,13 @@ export default async function SetsPage({
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8">
         <h1 className="text-2xl font-semibold tracking-tight">Sets</h1>
-        <p className="mt-2 text-sm text-muted">
-          {progress.length === 0
-            ? "Completion appears here once you own a card from a set."
-            : `${progress.length} set${progress.length === 1 ? "" : "s"} with cards in your collection${complete.length > 0 ? `, ${complete.length} complete` : ""}.`}
-        </p>
+        {/* A sentence only when there is nothing to look at. Once the list is
+            on screen it says what the list already says. */}
+        {progress.length === 0 ? (
+          <p className="mt-2 text-sm text-muted">
+            Completion appears here once you own a card from a set.
+          </p>
+        ) : null}
 
         <form className="mt-6 flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
@@ -224,8 +227,7 @@ export default async function SetsPage({
                     </strong>
                     ; {unpriced.toLocaleString()} more have no price.
                   </>
-                )}{" "}
-                Prices come from the weekly card ingest.
+                )}
               </p>
             ) : null}
 
@@ -236,10 +238,8 @@ export default async function SetsPage({
                     href={`/sets/${p.code}`}
                     className="block rounded-lg border border-border bg-surface px-4 py-3 hover:border-accent"
                   >
-                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <span className="font-mono text-xs uppercase text-muted">
-                        {p.code}
-                      </span>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <SetSymbol uri={p.iconSvgUri} code={p.code} />
                       <span className="min-w-0 flex-1 truncate">{p.name}</span>
                       <span className="text-sm text-muted">
                         {p.owned.toLocaleString()} / {p.target.toLocaleString()}
@@ -265,6 +265,8 @@ export default async function SetsPage({
           </section>
         ) : null}
       </main>
+
+      <AppFooter />
     </div>
   );
 }
