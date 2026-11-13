@@ -622,6 +622,16 @@ export type DeckCardCandidate = {
   inDeck: boolean;
   /** Whether it fits the deck's current commander identity. */
   inIdentity: boolean;
+  /**
+   * A printing to show the card as, for the preview beside the result list.
+   *
+   * The search is by oracle name and adding a card pins no printing, so this
+   * is only ever "what this card looks like" — `representativePrinting`'s
+   * newest English printing, the same choice the deck list's art makes. Null
+   * would mean a card with no printings at all, which the ingest should make
+   * impossible.
+   */
+  imageId: string | null;
 };
 
 /**
@@ -655,6 +665,7 @@ export async function searchDeckCards(
     owned: number;
     in_deck: boolean;
     in_identity: boolean;
+    image_id: string | null;
   }>(sql`
     WITH identity AS (
       SELECT coalesce(array_agg(DISTINCT ci), '{}') AS colors
@@ -721,7 +732,9 @@ export async function searchDeckCards(
            (
              NOT (SELECT present FROM has_commander)
              OR base.color_identity <@ (SELECT colors FROM identity)
-           ) AS in_identity
+           ) AS in_identity,
+           -- What the card looks like, for the preview beside the list.
+           ${representativePrinting(sql`base.oracle_id`)}::text AS image_id
       FROM matches base
      ORDER BY base.rank, base.name
   `);
@@ -737,6 +750,7 @@ export async function searchDeckCards(
     owned: r.owned,
     inDeck: r.in_deck,
     inIdentity: r.in_identity,
+    imageId: r.image_id,
   }));
 }
 

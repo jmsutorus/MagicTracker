@@ -7,6 +7,8 @@ import {
   adjustQuantityAction,
   createLocationAction,
 } from "@/app/collection/actions";
+import { ListRowPreview } from "@/components/card-preview";
+import { useReturnFocus } from "@/components/use-return-focus";
 import type { CardSearchResult } from "@/lib/cards/search";
 import type {
   EntryPrinting,
@@ -405,12 +407,12 @@ function NumberMode({
   const [note, setNote] = useState<string | null>(null);
 
   const numberRef = useRef<HTMLInputElement>(null);
+  const candidatesRef = useRef<HTMLUListElement>(null);
   const inFlight = useRef(false);
 
-  const focusNumber = useCallback(() => {
-    numberRef.current?.focus();
-    numberRef.current?.select();
-  }, []);
+  // The box is `disabled={busy}` while the add is in flight, so the cursor can
+  // only go back into it after the render that re-enables it.
+  const focusNumber = useReturnFocus(numberRef, busy, { select: true });
 
   const add = useCallback(
     async (printing: EntryPrinting, quantity: number) => {
@@ -502,8 +504,8 @@ function NumberMode({
           setNote(null);
           onError(null);
           // Pinning is the setup step; the number box is where the work
-          // happens, so land there immediately.
-          setTimeout(() => numberRef.current?.focus(), 0);
+          // happens, so land there as soon as it renders.
+          focusNumber();
         }}
       />
 
@@ -560,6 +562,7 @@ function NumberMode({
 
           {candidates.length > 0 ? (
             <ul
+              ref={candidatesRef}
               role="listbox"
               className="mt-3 overflow-hidden rounded-lg border border-border bg-surface"
             >
@@ -582,6 +585,14 @@ function NumberMode({
                 </li>
               ))}
             </ul>
+          ) : null}
+
+          {candidates.length > 0 ? (
+            <ListRowPreview
+              listRef={candidatesRef}
+              activeIndex={activeIndex}
+              imageId={candidates[activeIndex]?.scryfallId ?? null}
+            />
           ) : null}
         </div>
       ) : (
@@ -750,6 +761,12 @@ function NameMode({
   const [chosenName, setChosenName] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLUListElement>(null);
+  const printingsRef = useRef<HTMLUListElement>(null);
+
+  // The box is `disabled={busy}` while the add is in flight, so the cursor can
+  // only go back into it after the render that re-enables it.
+  const focusSearch = useReturnFocus(searchRef, busy);
 
   const reset = useCallback(() => {
     setQuery("");
@@ -757,8 +774,8 @@ function NameMode({
     setPrintings(null);
     setChosenName(null);
     setActiveIndex(0);
-    searchRef.current?.focus();
-  }, []);
+    focusSearch();
+  }, [focusSearch]);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -921,6 +938,7 @@ function NameMode({
             <span className="text-foreground">{chosenName}</span>?
           </p>
           <ul
+            ref={printingsRef}
             role="listbox"
             className="mt-2 max-h-80 overflow-auto rounded-lg border border-border bg-surface"
           >
@@ -954,6 +972,7 @@ function NameMode({
         </div>
       ) : results.length > 0 ? (
         <ul
+          ref={resultsRef}
           role="listbox"
           className="overflow-hidden rounded-lg border border-border bg-surface"
         >
@@ -981,6 +1000,27 @@ function NameMode({
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {/*
+        One preview, for whichever list is open — the printing picker replaces
+        the results while it is up. Keyed per list so switching between them
+        starts a fresh box rather than moving the last one.
+      */}
+      {printings ? (
+        <ListRowPreview
+          key="printings"
+          listRef={printingsRef}
+          activeIndex={printingIndex}
+          imageId={printings[printingIndex]?.scryfallId ?? null}
+        />
+      ) : results.length > 0 ? (
+        <ListRowPreview
+          key="results"
+          listRef={resultsRef}
+          activeIndex={activeIndex}
+          imageId={results[activeIndex]?.newestPrintingId ?? null}
+        />
       ) : null}
     </div>
   );

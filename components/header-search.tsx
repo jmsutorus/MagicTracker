@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { CardArt } from "@/components/card-art";
+import { ListRowPreview } from "@/components/card-preview";
 import { ManaCost } from "@/components/mana-cost";
 import type { CardSearchResult } from "@/lib/cards/search";
 
@@ -30,6 +31,7 @@ export function HeaderSearch() {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -159,6 +161,7 @@ export function HeaderSearch() {
 
       {showList ? (
         <ul
+          ref={listRef}
           id={listboxId}
           role="listbox"
           className="absolute left-0 right-0 top-full z-50 mt-1 overflow-hidden rounded-lg border border-border bg-surface shadow-xl"
@@ -186,6 +189,14 @@ export function HeaderSearch() {
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {showList ? (
+        <ListRowPreview
+          listRef={listRef}
+          activeIndex={activeIndex}
+          imageId={results[activeIndex]?.newestPrintingId ?? null}
+        />
       ) : null}
     </div>
   );

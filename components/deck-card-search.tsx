@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { addDeckCardAction } from "@/app/decks/actions";
+import { ListRowPreview } from "@/components/card-preview";
 import { ManaCost } from "@/components/mana-cost";
+import { useReturnFocus } from "@/components/use-return-focus";
 import {
   boardLabel,
   boardsFor,
@@ -24,6 +26,7 @@ type Candidate = {
   owned: number;
   inDeck: boolean;
   inIdentity: boolean;
+  imageId: string | null;
 };
 
 /**
@@ -37,7 +40,9 @@ type Candidate = {
  *
  * Keyboard-first for the same reason the collection entry screen is: arrow
  * keys move, Enter adds, focus stays in the box so the next card follows
- * without touching the mouse.
+ * without touching the mouse. The highlighted row's card is shown beside the
+ * list, so "is this the right Wrath" is answered by looking rather than by
+ * opening the card page and losing the box.
  */
 export function DeckCardSearch({
   deckId,
@@ -64,6 +69,7 @@ export function DeckCardSearch({
   const [, startTransition] = useTransition();
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const [query, setQuery] = useState("");
   const [board, setBoard] = useState<DeckBoard>(defaultBoard);
   const [results, setResults] = useState<Candidate[]>([]);
@@ -71,6 +77,10 @@ export function DeckCardSearch({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [added, setAdded] = useState<string | null>(null);
+
+  // The box is `disabled={busy}`, so the cursor can only go back into it once
+  // the add has finished and it has re-rendered enabled.
+  const returnFocus = useReturnFocus(inputRef, busy);
 
   // Debounced so typing a card name is one request, not one per keystroke.
   useEffect(() => {
@@ -122,6 +132,9 @@ export function DeckCardSearch({
     });
 
     setBusy(false);
+    // Either way the box is where the hand belongs: with the next name on a
+    // success, with the one that failed still in it on an error.
+    returnFocus();
 
     if (!result.ok) {
       setError(result.error);
@@ -131,7 +144,6 @@ export function DeckCardSearch({
     setAdded(`${candidate.name} → ${boardLabel(format, board)}`);
     setQuery("");
     setResults([]);
-    inputRef.current?.focus();
     startTransition(() => router.refresh());
   }
 
@@ -204,6 +216,7 @@ export function DeckCardSearch({
 
       {results.length > 0 ? (
         <ul
+          ref={listRef}
           role="listbox"
           className="mt-3 overflow-hidden rounded-lg border border-border bg-surface"
         >
@@ -259,6 +272,14 @@ export function DeckCardSearch({
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {results.length > 0 ? (
+        <ListRowPreview
+          listRef={listRef}
+          activeIndex={active}
+          imageId={results[active]?.imageId ?? null}
+        />
       ) : null}
     </div>
   );

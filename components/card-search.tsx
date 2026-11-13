@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { CardArt } from "@/components/card-art";
+import { ListRowPreview } from "@/components/card-preview";
 import { ManaCost } from "@/components/mana-cost";
 import type { CardSearchResult } from "@/lib/cards/search";
 
@@ -29,6 +30,7 @@ export function CardSearch() {
   const [error, setError] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -154,6 +156,7 @@ export function CardSearch() {
 
       {results.length > 0 ? (
         <ul
+          ref={listRef}
           id={listboxId}
           role="listbox"
           className="mt-3 overflow-hidden rounded-lg border border-border bg-surface"
@@ -187,6 +190,14 @@ export function CardSearch() {
         </ul>
       ) : null}
 
+      {results.length > 0 ? (
+        <ListRowPreview
+          listRef={listRef}
+          activeIndex={activeIndex}
+          imageId={results[activeIndex]?.newestPrintingId ?? null}
+        />
+      ) : null}
+
       {query.trim().length > 0 && !loading && !error && results.length === 0 ? (
         <p className="mt-3 text-sm text-muted">
           No cards match “{query.trim()}”.
@@ -194,9 +205,8 @@ export function CardSearch() {
       ) : null}
 
       <p className="mt-3 text-xs text-muted">
-        <kbd className="font-mono">↑</kbd>{" "}
-        <kbd className="font-mono">↓</kbd> to move,{" "}
-        <kbd className="font-mono">Enter</kbd> to open,{" "}
+        <kbd className="font-mono">↑</kbd> <kbd className="font-mono">↓</kbd> to
+        move, <kbd className="font-mono">Enter</kbd> to open,{" "}
         <kbd className="font-mono">Esc</kbd> to clear
       </p>
     </div>

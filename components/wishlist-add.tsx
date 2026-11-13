@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { addWishAction } from "@/app/wishlist/actions";
+import { ListRowPreview } from "@/components/card-preview";
 
 type Candidate = {
   oracleId: string;
@@ -11,6 +12,8 @@ type Candidate = {
   typeLine: string | null;
   manaCost: string | null;
   newestSetCode: string;
+  /** The printing to show in the preview beside the list. */
+  newestPrintingId: string;
 };
 
 /**
@@ -28,6 +31,7 @@ export function WishlistAdd() {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Candidate[]>([]);
@@ -119,7 +123,10 @@ export function WishlistAdd() {
       </label>
 
       {results.length > 0 ? (
-        <ul className="mt-2 max-w-md overflow-hidden rounded-lg border border-border bg-surface">
+        <ul
+          ref={listRef}
+          className="mt-2 max-w-md overflow-hidden rounded-lg border border-border bg-surface"
+        >
           {results.map((card, index) => (
             <li key={card.oracleId}>
               <button
@@ -138,6 +145,14 @@ export function WishlistAdd() {
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {results.length > 0 ? (
+        <ListRowPreview
+          listRef={listRef}
+          activeIndex={activeIndex}
+          imageId={results[activeIndex]?.newestPrintingId ?? null}
+        />
       ) : null}
 
       <p className="mt-2 text-xs" role="status" aria-live="polite">
