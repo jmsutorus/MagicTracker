@@ -22,11 +22,14 @@ const RARITIES = ["common", "uncommon", "rare", "mythic", "special", "bonus"];
  * happened. Every tool this app is compared with filters as you type.
  *
  * So the selects apply on change and the text box applies after a short
- * pause. The URL stays the source of truth — each change is a router
- * navigation, not local state — which keeps the filtered view linkable,
- * survivable across a reload, and correct in the back button. Paging resets
- * to the first page on any change, because page 4 of a different filter is
- * nobody's intent.
+ * pause. Every change is a router navigation, which keeps the filtered view
+ * linkable, survivable across a reload, and correct in the back button.
+ * Paging resets to the first page on any change, because page 4 of a
+ * different filter is nobody's intent.
+ *
+ * The URL is an output, though, not an input: it lands a transition behind
+ * the controls that write it, so what has been typed or chosen is tracked
+ * here and merged onto the URL rather than read back off it. See `target`.
  */
 export function CollectionFilters({
   sets,
@@ -39,20 +42,25 @@ export function CollectionFilters({
   const params = useSearchParams();
   const [pending, startTransition] = useTransition();
 
-  const q = params.get("q") ?? "";
-  const [text, setText] = useState(q);
+  const [text, setText] = useState(params.get("q") ?? "");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /*
-   * Follow the URL when it changes from outside this component — the Clear
-   * link, the back button. Adjusted during render rather than in an effect,
-   * which would show the stale text for a frame.
+   * The query string this bar is driving the URL towards.
+   *
+   * Every change has to be merged onto the *other* filters, and `params`
+   * cannot supply them: a navigation is a transition, so `useSearchParams`
+   * reports the URL as it was before the changes still in flight. Merging
+   * onto that snapshot loses whichever change has not landed yet — pick a
+   * set and type within the same breath, and the set filter disappears as
+   * the search text arrives.
+   *
+   * So the writes accumulate here instead, and `params` is only ever read
+   * for what to *show*. A ref rather than state because the queued keystroke
+   * below must read the newest value when it fires, not the one captured in
+   * the render that queued it.
    */
-  const [lastQ, setLastQ] = useState(q);
-  if (q !== lastQ) {
-    setLastQ(q);
-    setText(q);
-  }
+  const target = useRef(params.toString());
 
   useEffect(() => {
     return () => {
@@ -62,7 +70,19 @@ export function CollectionFilters({
 
   const apply = useCallback(
     (patch: Record<string, string>) => {
-      const next = new URLSearchParams(params.toString());
+      if ("q" in patch) {
+        /*
+         * This write supersedes any queued keystroke: without the cancel, a
+         * Clear or an Enter is undone 300ms later by the pause that was
+         * already ticking.
+         */
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = null;
+        // Keeps the box in step when the value came from elsewhere (Clear).
+        setText(patch.q);
+      }
+
+      const next = new URLSearchParams(target.current);
       for (const [key, value] of Object.entries(patch)) {
         if (value) next.set(key, value);
         else next.delete(key);
@@ -71,6 +91,7 @@ export function CollectionFilters({
       if (!("page" in patch)) next.delete("page");
 
       const query = next.toString();
+      target.current = query;
       startTransition(() => {
         /*
          * `scroll: false` — re-filtering a list you are part way down should
@@ -81,8 +102,32 @@ export function CollectionFilters({
         });
       });
     },
-    [params, router],
+    [router],
   );
+
+  /*
+   * The box is never re-derived from the URL on render, for the same reason
+   * `target` exists: the URL trails the typing, and copying it back into the
+   * box deletes the letters still in flight — the letter that vanished and
+   * came back a moment later, and the one typed into that gap that was lost
+   * outright.
+   *
+   * Back and forward are the one case where the URL legitimately moves on
+   * its own, and popstate reports exactly those: it never fires for this
+   * component's own `router.replace`. Anything else that changes the query
+   * here goes through `apply`, which keeps the box in step itself.
+   */
+  useEffect(() => {
+    function onPopState() {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+      const search = window.location.search.replace(/^\?/, "");
+      target.current = search;
+      setText(new URLSearchParams(search).get("q") ?? "");
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   function onType(value: string) {
     setText(value);

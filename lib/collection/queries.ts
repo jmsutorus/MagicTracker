@@ -1,11 +1,13 @@
 import { sql } from "drizzle-orm";
 
 import { getDb } from "@/lib/db";
-import type {
-  CardCondition,
-  CardFinish,
-  CollectionSort,
-  LocationKind,
+import {
+  CARD_CONDITIONS,
+  CARD_FINISHES,
+  type CardCondition,
+  type CardFinish,
+  type CollectionSort,
+  type LocationKind,
 } from "@/lib/collection/constants";
 
 export type LocationRow = {
@@ -41,6 +43,20 @@ export type EntryPrinting = {
   releasedAt: string | null;
   /** Copies already owned across every finish, condition and location. */
   ownedQuantity: number;
+};
+
+/**
+ * Copies of one printing that are alike in the ways a collector cares about.
+ *
+ * Locations are summed away: two NM foils are two NM foils whether they sit
+ * in one binder or two, and "where" is the collection page's question, not
+ * the card page's.
+ */
+export type OwnedCopies = {
+  printingId: string;
+  finish: CardFinish;
+  condition: CardCondition;
+  quantity: number;
 };
 
 export type CollectionTotals = {
@@ -215,6 +231,53 @@ export async function listPrintingsForOracle(
   `);
 
   return rows.map(toEntryPrinting);
+}
+
+/**
+ * What is owned of each printing of one card, split by finish and condition.
+ *
+ * Grouped in SQL but *ordered* in TypeScript, against the constants that
+ * define these domains: "nonfoil, foil, etched" and "NM through DMG" are
+ * meaningful sequences, and reproducing either as a CASE in SQL would be a
+ * second copy of an order that already has one definition.
+ *
+ * Returns [] for a card you own no copy of, which is the common case on a
+ * card page, so it costs one indexed lookup and nothing more.
+ */
+export async function listOwnedCopiesForOracle(
+  oracleId: string,
+): Promise<OwnedCopies[]> {
+  const db = getDb();
+
+  const { rows } = await db.execute<{
+    printing_id: string;
+    finish: CardFinish;
+    condition: CardCondition;
+    quantity: number;
+  }>(sql`
+    SELECT c.printing_id::text AS printing_id,
+           c.finish,
+           c.condition,
+           sum(c.quantity)::int AS quantity
+      FROM collection_items c
+      JOIN printings p ON p.scryfall_id = c.printing_id
+     WHERE p.oracle_id = ${oracleId}::uuid
+     GROUP BY c.printing_id, c.finish, c.condition
+  `);
+
+  return rows
+    .map((r) => ({
+      printingId: r.printing_id,
+      finish: r.finish,
+      condition: r.condition,
+      quantity: r.quantity,
+    }))
+    .sort(
+      (a, b) =>
+        CARD_FINISHES.indexOf(a.finish) - CARD_FINISHES.indexOf(b.finish) ||
+        CARD_CONDITIONS.indexOf(a.condition) -
+          CARD_CONDITIONS.indexOf(b.condition),
+    );
 }
 
 type EntryPrintingRow = {

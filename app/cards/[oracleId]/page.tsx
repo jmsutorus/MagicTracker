@@ -7,9 +7,15 @@ import { AppHeader } from "@/components/app-header";
 import { CardPurchaseLinks } from "@/components/card-purchase-links";
 import { ColorIdentity, ManaCost } from "@/components/mana-cost";
 import { PriceHistory } from "@/components/price-history";
+import { PrintingRow } from "@/components/printing-row";
 import { WishButton } from "@/components/wish-button";
 import { requireUser } from "@/lib/auth/dal";
 import { getCardDetail } from "@/lib/cards/search";
+import { describeOwnedCopies } from "@/lib/collection/constants";
+import {
+  listOwnedCopiesForOracle,
+  type OwnedCopies,
+} from "@/lib/collection/queries";
 import { getOwnedPriceHistory } from "@/lib/prices/queries";
 import { cardImageUrl } from "@/lib/scryfall/client";
 
@@ -66,9 +72,24 @@ export default async function CardDetailPage({
   const card = await getCardDetail(oracleId);
   if (!card) notFound();
 
-  // Only ever has anything for a card you own, so it costs nothing on the
-  // overwhelming majority of card pages.
-  const history = await getOwnedPriceHistory(oracleId);
+  // Both only ever have anything for a card you own, so they cost nothing on
+  // the overwhelming majority of card pages.
+  const [history, owned] = await Promise.all([
+    getOwnedPriceHistory(oracleId),
+    listOwnedCopiesForOracle(oracleId),
+  ]);
+
+  /*
+   * Keyed by printing, because the list below is per printing and a card you
+   * collect seriously has copies under several of them.
+   */
+  const ownedByPrinting = new Map<string, OwnedCopies[]>();
+  for (const row of owned) {
+    const groups = ownedByPrinting.get(row.printingId);
+    if (groups) groups.push(row);
+    else ownedByPrinting.set(row.printingId, [row]);
+  }
+  const ownedCopies = owned.reduce((sum, row) => sum + row.quantity, 0);
 
   const primary = card.printings[0];
   const commanderLegality = card.legalities?.commander ?? "unknown";
@@ -185,23 +206,49 @@ export default async function CardDetailPage({
           </h2>
 
           <p className="mt-1 text-xs text-muted">
-            Every version of this card. Add one from the search on{" "}
-            <Link
-              href="/collection/add"
-              className="underline underline-offset-4 hover:text-foreground"
-            >
-              Add cards
-            </Link>
-            , or follow a store link to buy it.
+            Every version of this card, with the art on hover.
+            {ownedCopies > 0 ? (
+              <>
+                {" "}
+                You own{" "}
+                <span className="text-ok">
+                  {ownedCopies} {ownedCopies === 1 ? "copy" : "copies"}
+                </span>{" "}
+                across {ownedByPrinting.size}{" "}
+                {ownedByPrinting.size === 1 ? "printing" : "printings"} — the
+                collection page says where they are.
+              </>
+            ) : (
+              <>
+                {" "}
+                Add one from the search on{" "}
+                <Link
+                  href="/collection/add"
+                  className="underline underline-offset-4 hover:text-foreground"
+                >
+                  Add cards
+                </Link>
+                , or follow a store link to buy it.
+              </>
+            )}
           </p>
 
           <ul className="mt-4 overflow-hidden rounded-lg border border-border bg-surface">
             {card.printings.map((p) => {
               const tags = printingTags(p);
+              const groups = ownedByPrinting.get(p.scryfallId);
               return (
-                <li
+                <PrintingRow
                   key={p.scryfallId}
-                  className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border px-4 py-2.5 last:border-0"
+                  imageId={p.scryfallId}
+                  /*
+                    Owned printings are tinted, so which versions are already
+                    yours is answerable by scanning the list rather than by
+                    reading every row.
+                  */
+                  className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-border px-4 py-2.5 last:border-0 ${
+                    groups ? "bg-surface-muted" : ""
+                  }`}
                 >
                   <span className="w-16 shrink-0 font-mono text-xs text-muted">
                     {p.setCode.toUpperCase()}
@@ -209,7 +256,7 @@ export default async function CardDetailPage({
                   <span className="w-14 shrink-0 font-mono text-xs text-muted">
                     #{p.collectorNumber}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-sm">
+                  <span className="min-w-24 flex-1 truncate text-sm">
                     {p.setName}
                     {tags.length > 0 ? (
                       <span className="ml-2 text-xs text-muted">
@@ -217,9 +264,17 @@ export default async function CardDetailPage({
                       </span>
                     ) : null}
                   </span>
+                  {groups ? (
+                    <span className="shrink-0 whitespace-nowrap text-xs text-ok">
+                      {describeOwnedCopies(groups)}
+                    </span>
+                  ) : null}
                   <span className="shrink-0 font-mono text-xs text-muted">
                     {RARITY_LABEL[p.rarity] ?? p.rarity}
                   </span>
+                  {/* Which finishes the printing *exists* in, as against the
+                      ones owned above — the answer to "is there a foil of
+                      this at all". */}
                   <span className="hidden shrink-0 text-xs text-muted sm:inline">
                     {p.finishes.map((f) => FINISH_LABEL[f] ?? f).join(", ")}
                   </span>
@@ -244,7 +299,7 @@ export default async function CardDetailPage({
                       compact
                     />
                   </span>
-                </li>
+                </PrintingRow>
               );
             })}
           </ul>

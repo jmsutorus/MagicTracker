@@ -53,6 +53,34 @@ export type CardFinish = (typeof CARD_FINISHES)[number];
 export const CARD_CONDITIONS = ["NM", "LP", "MP", "HP", "DMG"] as const;
 export type CardCondition = (typeof CARD_CONDITIONS)[number];
 
+/**
+ * "own 2 foil NM", or "own 3: 2 foil NM · 1 nonfoil LP".
+ *
+ * How many, and of what, in one line — what a card page's printings list has
+ * to answer about each version.
+ *
+ * The finish is spelled out even when it is the ordinary one. Naming only the
+ * foils would leave a bare "own 2" meaning either nonfoil or unstated, and
+ * someone checking whether they already have the foil of a card is precisely
+ * who reads this.
+ *
+ * The total leads only when the copies differ among themselves: "own 2: 2
+ * foil NM" would say the same thing twice.
+ */
+export function describeOwnedCopies(
+  groups: readonly { finish: string; condition: string; quantity: number }[],
+): string {
+  if (groups.length === 0) return "";
+
+  const parts = groups.map(
+    (g) => `${g.quantity} ${g.finish} ${g.condition}`.trim(),
+  );
+  if (parts.length === 1) return `own ${parts[0]}`;
+
+  const total = groups.reduce((sum, g) => sum + g.quantity, 0);
+  return `own ${total}: ${parts.join(" · ")}`;
+}
+
 /** The default every collection starts with, seeded by migration 0005. */
 export const DEFAULT_LOCATION_NAME = "Unsorted";
 
