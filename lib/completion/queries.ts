@@ -96,6 +96,23 @@ export type MissingPrinting = {
   priceCents: number | null;
 };
 
+/**
+ * A printing in scope for a set, with whether you have it.
+ *
+ * The same shape as a missing one plus the count, because the set page shows
+ * the whole checklist in one table and only *draws* the two states
+ * differently — a page that had to join two differently-shaped lists back
+ * together in collector-number order would be the same table built twice.
+ */
+export type SetPrinting = MissingPrinting & {
+  /**
+   * Copies that satisfy the scope's finish rule, so 0 means missing. Copies
+   * rather than a boolean: a set checklist is also the place you notice you
+   * bought the same rare three times.
+   */
+  ownedCopies: number;
+};
+
 const RARITY_ORDER = ["common", "uncommon", "rare", "mythic", "special", "bonus"];
 const COLOR_ORDER = [
   "White",
@@ -438,15 +455,19 @@ export async function getSetCompletion(
 }
 
 /**
- * In-scope printings of this set that no owned copy satisfies — the want list.
+ * The in-scope printings of one set, in collector-number order.
  *
- * This is the anti-join the whole stack was chosen for: a LEFT JOIN with an
- * IS NULL test, which a document store cannot express without reading the
- * entire set and the entire collection into application memory first.
+ * `missingOnly` is the anti-join the whole stack was chosen for: a LEFT JOIN
+ * with an IS NULL test, which a document store cannot express without reading
+ * the entire set and the entire collection into application memory first. It
+ * stays in SQL rather than becoming a `.filter()` over the full list, because
+ * the want-list download wants only the missing rows and should not pay for
+ * three hundred it will throw away.
  */
-export async function listMissingPrintings(
+async function querySetPrintings(
   setCode: string,
-): Promise<MissingPrinting[]> {
+  missingOnly: boolean,
+): Promise<SetPrinting[]> {
   const db = getDb();
   const code = setCode.toLowerCase();
 
@@ -459,6 +480,7 @@ export async function listMissingPrintings(
     mana_cost: string | null;
     color_identity: string[] | null;
     price_cents: number | null;
+    owned_copies: number;
   }>(sql`
     WITH ${capsFragment(code)}, ${scopeCte(code)}, ${ownedCte(code)}
     SELECT p.scryfall_id::text AS scryfall_id,
@@ -473,7 +495,8 @@ export async function listMissingPrintings(
              WHEN 'foil'    THEN p.usd_foil_cents
              WHEN 'etched'  THEN p.usd_etched_cents
              ELSE LEAST(p.usd_cents, p.usd_foil_cents, p.usd_etched_cents)
-           END AS price_cents
+           END AS price_cents,
+           coalesce(owned.copies, 0)::int AS owned_copies
       FROM printings p
       JOIN oracle_cards o ON o.oracle_id = p.oracle_id
       CROSS JOIN scope
@@ -482,7 +505,7 @@ export async function listMissingPrintings(
      WHERE p.set_code = ${code}
        AND p.lang = 'en'
        ${scopeFragment()}
-       AND owned.printing_id IS NULL
+       ${missingOnly ? sql`AND owned.printing_id IS NULL` : sql.empty()}
      ORDER BY p.collector_number_num ASC NULLS LAST, p.collector_number ASC
   `);
 
@@ -495,7 +518,26 @@ export async function listMissingPrintings(
     manaCost: r.mana_cost,
     colorIdentity: r.color_identity ?? [],
     priceCents: r.price_cents,
+    ownedCopies: r.owned_copies,
   }));
+}
+
+/**
+ * Every in-scope printing of this set — the set's checklist.
+ *
+ * The whole list rather than only the gaps, because "which of these do I
+ * have" is the question a checklist answers and a list of absences cannot:
+ * 138 rows of cards you do not own says nothing about the 143 you do.
+ */
+export function listSetPrintings(setCode: string): Promise<SetPrinting[]> {
+  return querySetPrintings(setCode, false);
+}
+
+/** In-scope printings no owned copy satisfies — the want list. */
+export function listMissingPrintings(
+  setCode: string,
+): Promise<MissingPrinting[]> {
+  return querySetPrintings(setCode, true);
 }
 
 /** Sets matching a search, for jumping to one you own nothing from yet. */
