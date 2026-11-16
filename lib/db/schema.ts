@@ -20,6 +20,27 @@ import {
 // from it, so the bound in the database and the bound the forms enforce are
 // the same number.
 import { MAX_CUBE_SIZE } from "@/lib/decks/constants";
+import {
+  CARD_FINISHES,
+  COMPLETION_FINISHES,
+} from "@/lib/collection/constants";
+import { GAMES } from "@/lib/games/constants";
+
+/**
+ * A literal list for an `IN (…)` check, written from the TypeScript constant.
+ *
+ * `sql.raw` is safe here and only here: every value comes from a frozen
+ * `as const` array in this repository, never from input. Writing the lists
+ * out by hand instead is what lets the database and the app disagree — which
+ * is the bug this avoids, at the cost of one carefully-scoped escape hatch.
+ */
+function sqlValueList(values: readonly string[]) {
+  return sql.raw(`(${values.map((v) => `'${v}'`).join(", ")})`);
+}
+
+const GAME_VALUES = sqlValueList(GAMES);
+const FINISH_VALUES = sqlValueList(CARD_FINISHES);
+const COMPLETION_FINISH_VALUES = sqlValueList(COMPLETION_FINISHES);
 
 /**
  * MACHINE-OWNED TABLES (sets / oracle_cards / printings)
@@ -55,6 +76,18 @@ export const sets = pgTable(
 
     name: text("name").notNull(),
 
+    /**
+     * Which game this set belongs to — mtg | pokemon | onepiece.
+     *
+     * Defaulted to `mtg` so the 1,068 sets that predate multi-game support
+     * are labelled correctly without a backfill, and so a Scryfall ingest
+     * written before this column existed still produces valid rows.
+     *
+     * Non-Magic codes are prefixed (`pkm-sv8`), which is what keeps one
+     * `code` primary key serving every game. See lib/games/constants.ts.
+     */
+    game: text("game").notNull().default("mtg"),
+
     /** core | expansion | commander | masters | promo | token | memorabilia | … */
     setType: text("set_type").notNull(),
 
@@ -78,6 +111,8 @@ export const sets = pgTable(
     index("sets_released_at_idx").on(table.releasedAt),
     index("sets_set_type_idx").on(table.setType),
     index("sets_parent_idx").on(table.parentSetCode),
+    index("sets_game_idx").on(table.game, table.releasedAt),
+    check("sets_game_check", sql`${table.game} IN ${GAME_VALUES}`),
   ],
 );
 
@@ -88,9 +123,18 @@ export const sets = pgTable(
 export const oracleCards = pgTable(
   "oracle_cards",
   {
+    /**
+     * Scryfall's oracle id for Magic; for every other game a UUIDv5 derived
+     * from the game and the card's name, because those catalogs have no
+     * identifier for "the card" as distinct from "this printing of it".
+     * See lib/games/ids.ts.
+     */
     oracleId: uuid("oracle_id").primaryKey(),
 
     name: text("name").notNull(),
+
+    /** mtg | pokemon | onepiece. See `sets.game`. */
+    game: text("game").notNull().default("mtg"),
 
     /** For multi-faced cards, faces joined with " // ". */
     manaCost: text("mana_cost"),
@@ -121,6 +165,25 @@ export const oracleCards = pgTable(
 
     /** normal | split | transform | modal_dfc | token | art_series | … */
     layout: text("layout"),
+
+    /**
+     * The facts that only one game has.
+     *
+     * Each catalog is projected onto the columns above wherever an honest
+     * mapping exists — a Pokémon card's `type_line` reads "Basic Pokémon —
+     * Grass", a One Piece character's reads "Character — Thriller Bark
+     * Pirates" — which is what lets every existing list, search result and
+     * card page render a Pokémon card without being taught about Pokémon.
+     *
+     * What is left over is genuinely game-specific and has nowhere to go:
+     * HP, attacks, retreat cost, weaknesses; DON!! cost, power, counter,
+     * life, attribute. Columns for them would be null on 110k Magic rows and
+     * on each other's games, so they live here and the card page reads the
+     * handful it knows how to show.
+     *
+     * Null for Magic, whose game-specific facts are the columns above.
+     */
+    gameData: jsonb("game_data").$type<Record<string, unknown>>(),
   },
   (table) => [
     // Fuzzy name search. gin_trgm_ops is what makes "lightnig bolt" find
@@ -131,6 +194,10 @@ export const oracleCards = pgTable(
     ),
     index("oracle_cards_name_idx").on(table.name),
     index("oracle_cards_color_identity_idx").using("gin", table.colorIdentity),
+    // Search filtered to one game is the common case once there is more than
+    // one, and the leading column lets the planner skip the rest outright.
+    index("oracle_cards_game_name_idx").on(table.game, table.name),
+    check("oracle_cards_game_check", sql`${table.game} IN ${GAME_VALUES}`),
   ],
 );
 
@@ -141,8 +208,32 @@ export const oracleCards = pgTable(
 export const printings = pgTable(
   "printings",
   {
-    /** Scryfall card UUID. Also derives the image URL, so no URLs stored. */
+    /**
+     * The printing's identity, and the thing six other tables point at.
+     *
+     * For Magic this is the Scryfall card UUID, exactly as it always was.
+     * For every other game it is a UUIDv5 derived from the game and that
+     * catalog's own card id, which is stored verbatim in `external_id`
+     * beside it — see lib/games/ids.ts for why the column stayed a `uuid`
+     * rather than widening to text underneath 1,826 rows of collection.
+     *
+     * The column name is now narrower than what it holds. Renaming it would
+     * touch every query in the app for no behavioural gain, so it keeps the
+     * name and carries this note instead.
+     */
     scryfallId: uuid("scryfall_id").primaryKey(),
+
+    /** mtg | pokemon | onepiece. See `sets.game`. */
+    game: text("game").notNull().default("mtg"),
+
+    /**
+     * This card's id in the catalog it came from — `sv8-1`, `OP01-077`.
+     *
+     * Null for Magic, where `scryfall_id` already is that id. It exists so
+     * an ingest can find the row it wrote last week without re-deriving the
+     * hash, and so a human debugging a bad row can search upstream for it.
+     */
+    externalId: text("external_id"),
 
     /**
      * Declared as real foreign keys. The ingest reloads these tables inside
@@ -236,6 +327,25 @@ export const printings = pgTable(
 
     /** missing | placeholder | lowres | highres_scan */
     imageStatus: text("image_status"),
+
+    /**
+     * Where to find a picture of this card, hotlinked rather than re-hosted.
+     *
+     * Scryfall's URLs are a pure function of the card id, which is why none
+     * were stored before: `cards.scryfall.io/art_crop/front/a/b/<id>.jpg`.
+     * No other catalog works that way — Pokémon serves
+     * `images.pokemontcg.io/sv8/1.png`, One Piece serves a path built from
+     * the printed card number — so the URL has to be a fact about the row.
+     *
+     * The migration that added these backfilled all 110k Magic rows with the
+     * derived URLs, so this is now the single source for every game and
+     * callers no longer compute one. `art_url` is the illustration alone
+     * (the crop a 44px list row can actually be read at) and is null where a
+     * catalog publishes only the whole card, in which case the full image
+     * stands in.
+     */
+    imageUrl: text("image_url"),
+    artUrl: text("art_url"),
   },
   (table) => [
     /**
@@ -263,6 +373,10 @@ export const printings = pgTable(
       table.collectorNumberNum,
       table.collectorNumber,
     ),
+    index("printings_game_name_idx").on(table.game, table.name),
+    // How each non-Magic ingest finds the rows it wrote last time.
+    index("printings_game_external_idx").on(table.game, table.externalId),
+    check("printings_game_check", sql`${table.game} IN ${GAME_VALUES}`),
   ],
 );
 
@@ -468,7 +582,7 @@ export const collectionItems = pgTable(
     check("collection_items_quantity_check", sql`${table.quantity} > 0`),
     check(
       "collection_items_finish_check",
-      sql`${table.finish} IN ('nonfoil', 'foil', 'etched')`,
+      sql`${table.finish} IN ${FINISH_VALUES}`,
     ),
     check(
       "collection_items_condition_check",
@@ -528,8 +642,10 @@ export const completionTargets = pgTable(
   },
   (table) => [
     check(
+      // Not widened with CARD_FINISHES: set completion is Magic-only, so
+      // `reverse` would be an option no set here can ever be scoped by.
       "completion_targets_finish_check",
-      sql`${table.finish} IN ('any', 'nonfoil', 'foil', 'etched')`,
+      sql`${table.finish} IN ${COMPLETION_FINISH_VALUES}`,
     ),
   ],
 );
@@ -978,7 +1094,7 @@ export const priceSnapshots = pgTable(
     check("price_snapshots_price_check", sql`${table.priceCents} >= 0`),
     check(
       "price_snapshots_finish_check",
-      sql`${table.finish} IN ('nonfoil', 'foil', 'etched')`,
+      sql`${table.finish} IN ${FINISH_VALUES}`,
     ),
   ],
 );
@@ -1077,7 +1193,7 @@ export const wishlistItems = pgTable(
     check("wishlist_items_quantity_check", sql`${table.quantity} > 0`),
     check(
       "wishlist_items_finish_check",
-      sql`${table.finish} IS NULL OR ${table.finish} IN ('nonfoil', 'foil', 'etched')`,
+      sql`${table.finish} IS NULL OR ${table.finish} IN ${FINISH_VALUES}`,
     ),
   ],
 );

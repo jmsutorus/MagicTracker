@@ -16,7 +16,12 @@
  * 2026-11-11. Where a store changes one, the check that catches it is a
  * 404 in the browser, not a failing test here — these are other people's
  * URLs and the tests only pin what we generate.
+ *
+ * Mana Pool sells Magic and nothing else, so it is simply absent from a
+ * Pokémon or One Piece card's links rather than linked to a page that cannot
+ * have the card. TCGplayer sells all three, and takes a category in the URL.
  */
+import type { GameSlug } from "@/lib/games/constants";
 
 // ---------------------------------------------------------------------------
 // Single-card links
@@ -33,12 +38,30 @@
 export function tcgplayerCardUrl(
   cardName: string,
   tcgplayerId?: number | null,
+  game: GameSlug = "mtg",
 ): string {
   if (tcgplayerId) {
     return `https://www.tcgplayer.com/product/${tcgplayerId}`;
   }
-  return `https://www.tcgplayer.com/search/magic/product?q=${encodeURIComponent(cardName)}&view=grid`;
+  return `https://www.tcgplayer.com/search/${TCGPLAYER_CATEGORY[game]}/product?q=${encodeURIComponent(cardName)}&view=grid`;
 }
+
+/**
+ * TCGplayer's own path segment per game.
+ *
+ * The search URL is scoped to a category, and the Magic one was hard-coded.
+ * Searching `/search/magic/product?q=Charizard` returns nothing, so a
+ * Pokémon card's only buy link would have led to an empty results page.
+ *
+ * Only the *search* fallback needs this. A `tcgplayer_id` addresses a
+ * product directly and is category-free — though in practice only Magic
+ * printings carry one, since it comes from Scryfall.
+ */
+const TCGPLAYER_CATEGORY: Record<GameSlug, string> = {
+  mtg: "magic",
+  pokemon: "pokemon",
+  onepiece: "one-piece-card-game",
+};
 
 /** Mana Pool's card search, by name. */
 export function manapoolCardUrl(cardName: string): string {

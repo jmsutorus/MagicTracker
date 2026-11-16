@@ -9,6 +9,7 @@ import {
   type CollectionSort,
   type LocationKind,
 } from "@/lib/collection/constants";
+import type { GameSlug } from "@/lib/games/constants";
 
 export type LocationRow = {
   id: string;
@@ -24,6 +25,7 @@ export type LocationRow = {
 export type EntrySet = {
   code: string;
   name: string;
+  game: GameSlug;
   releasedAt: string | null;
   /** Printings eligible for entry: paper, English, not an art series or token. */
   printingCount: number;
@@ -33,10 +35,13 @@ export type EntryPrinting = {
   scryfallId: string;
   oracleId: string;
   name: string;
+  game: GameSlug;
   setCode: string;
   setName: string;
   collectorNumber: string;
   rarity: string;
+  /** The whole card, for the hover preview beside the picker. */
+  imageUrl: string | null;
   finishes: CardFinish[];
   lang: string;
   isExtra: boolean;
@@ -77,10 +82,14 @@ export type CollectionRow = {
   printingId: string;
   oracleId: string;
   name: string;
+  game: GameSlug;
   setCode: string;
   setName: string;
   collectorNumber: string;
   rarity: string;
+  /** The tile beside the row, and the whole card for the hover preview. */
+  artUrl: string | null;
+  imageUrl: string | null;
   manaCost: string | null;
   typeLine: string | null;
   /**
@@ -92,6 +101,8 @@ export type CollectionRow = {
 
 export type BrowseFilters = {
   q?: string;
+  /** One game, or undefined for all of them. */
+  game?: GameSlug;
   setCode?: string;
   locationId?: string;
   finish?: string;
@@ -161,11 +172,13 @@ export async function listEntrySets(): Promise<EntrySet[]> {
   const { rows } = await db.execute<{
     code: string;
     name: string;
+    game: GameSlug;
     released_at: string | null;
     printing_count: number;
   }>(sql`
     SELECT s.code,
            s.name,
+           s.game,
            s.released_at::text AS released_at,
            count(p.scryfall_id)::int AS printing_count
       FROM sets s
@@ -174,17 +187,86 @@ export async function listEntrySets(): Promise<EntrySet[]> {
        AND p.lang = 'en'
        AND NOT p.is_extra
      WHERE NOT s.digital
-     GROUP BY s.code, s.name, s.released_at
+     GROUP BY s.code, s.name, s.game, s.released_at
      HAVING count(p.scryfall_id) > 0
-     ORDER BY s.released_at DESC NULLS LAST, s.name ASC
+     /*
+      * Game first, so the picker's options group rather than interleave.
+      * One Piece publishes no release dates at all, so without this its 58
+      * releases would scatter to the bottom among Magic's undated sets
+      * instead of sitting together under their own heading.
+      */
+     ORDER BY s.game ASC, s.released_at DESC NULLS LAST, s.name ASC
   `);
 
   return rows.map((r) => ({
     code: r.code,
     name: r.name,
+    game: r.game,
     releasedAt: r.released_at,
     printingCount: r.printing_count,
   }));
+}
+
+/**
+ * The rarities and finishes actually present, for the browse filter.
+ *
+ * Read from the collection rather than from a constant, which the rarity
+ * list used to be. A hard-coded `['common','uncommon','rare','mythic',…]` is
+ * Magic's vocabulary, and the other games do not share it: Pokémon alone
+ * contributes "Illustration Rare", "Double Rare" and a dozen more, and a One
+ * Piece card is a "Secret Rare". Offering only Magic's six would make the
+ * filter useless on two thirds of the games, and offering the union of all
+ * of them would be forty options of which most match nothing.
+ *
+ * Finishes are read the same way for the same reason, one step milder:
+ * `reverse` is Pokémon's and `etched` is Magic's, and a collector of one
+ * should not be offered the other's.
+ */
+export async function listCollectionFacets(
+  game?: GameSlug,
+): Promise<{ rarities: string[]; finishes: string[] }> {
+  const db = getDb();
+  const gameFilter = game ? sql`WHERE p.game = ${game}` : sql``;
+
+  const { rows } = await db.execute<{
+    rarities: string[] | null;
+    finishes: string[] | null;
+  }>(sql`
+    SELECT array_agg(DISTINCT p.rarity ORDER BY p.rarity) AS rarities,
+           array_agg(DISTINCT c.finish ORDER BY c.finish) AS finishes
+      FROM collection_items c
+      JOIN printings p ON p.scryfall_id = c.printing_id
+      ${gameFilter}
+  `);
+
+  return {
+    rarities: rows[0]?.rarities ?? [],
+    finishes: rows[0]?.finishes ?? [],
+  };
+}
+
+/**
+ * Games actually present in the collection, for the browse filter.
+ *
+ * Driven by what is owned rather than by the GAMES constant, so somebody who
+ * has never entered a Pokémon card is not offered a tab that can only ever
+ * show an empty list. The counts are physical cards, which is the number the
+ * tab itself shows.
+ */
+export async function listCollectedGames(): Promise<
+  { game: GameSlug; copies: number }[]
+> {
+  const db = getDb();
+
+  const { rows } = await db.execute<{ game: GameSlug; copies: number }>(sql`
+    SELECT p.game, sum(c.quantity)::int AS copies
+      FROM collection_items c
+      JOIN printings p ON p.scryfall_id = c.printing_id
+     GROUP BY p.game
+     ORDER BY copies DESC
+  `);
+
+  return rows;
 }
 
 /**
@@ -284,10 +366,12 @@ type EntryPrintingRow = {
   scryfall_id: string;
   oracle_id: string;
   name: string;
+  game: GameSlug;
   set_code: string;
   set_name: string;
   collector_number: string;
   rarity: string;
+  image_url: string | null;
   finishes: string[] | null;
   lang: string;
   is_extra: boolean;
@@ -304,10 +388,12 @@ const entryPrintingSelect = sql`
     SELECT p.scryfall_id::text AS scryfall_id,
            p.oracle_id::text   AS oracle_id,
            p.name,
+           p.game,
            p.set_code,
            s.name AS set_name,
            p.collector_number,
            p.rarity,
+           p.image_url,
            p.finishes,
            p.lang,
            p.is_extra,
@@ -326,10 +412,12 @@ function toEntryPrinting(r: EntryPrintingRow): EntryPrinting {
     scryfallId: r.scryfall_id,
     oracleId: r.oracle_id,
     name: r.name,
+    game: r.game,
     setCode: r.set_code,
     setName: r.set_name,
     collectorNumber: r.collector_number,
     rarity: r.rarity,
+    imageUrl: r.image_url,
     finishes: (r.finishes ?? []) as CardFinish[],
     lang: r.lang,
     isExtra: r.is_extra,
@@ -338,8 +426,11 @@ function toEntryPrinting(r: EntryPrintingRow): EntryPrinting {
   };
 }
 
-export async function getCollectionTotals(): Promise<CollectionTotals> {
+export async function getCollectionTotals(
+  game?: GameSlug,
+): Promise<CollectionTotals> {
   const db = getDb();
+  const gameFilter = game ? sql`WHERE p.game = ${game}` : sql``;
 
   const { rows } = await db.execute<{
     total_copies: number;
@@ -357,6 +448,7 @@ export async function getCollectionTotals(): Promise<CollectionTotals> {
            ), 0)::int                                   AS foil_copies
       FROM collection_items c
       JOIN printings p ON p.scryfall_id = c.printing_id
+      ${gameFilter}
   `);
 
   const row = rows[0];
@@ -369,11 +461,19 @@ export async function getCollectionTotals(): Promise<CollectionTotals> {
   };
 }
 
-/** Sets present in the collection, for the browse filter dropdown. */
-export async function listCollectedSets(): Promise<
-  { code: string; name: string; copies: number }[]
-> {
+/**
+ * Sets present in the collection, for the browse filter dropdown.
+ *
+ * Narrowed by the game being browsed. Without that the dropdown lists every
+ * set of every game at once, which for a collection spanning all three is
+ * several hundred options of which only a fraction can match the rows on
+ * screen.
+ */
+export async function listCollectedSets(
+  game?: GameSlug,
+): Promise<{ code: string; name: string; copies: number }[]> {
   const db = getDb();
+  const gameFilter = game ? sql`WHERE p.game = ${game}` : sql``;
 
   const { rows } = await db.execute<{
     code: string;
@@ -384,6 +484,7 @@ export async function listCollectedSets(): Promise<
       FROM collection_items c
       JOIN printings p ON p.scryfall_id = c.printing_id
       JOIN sets s ON s.code = p.set_code
+      ${gameFilter}
      GROUP BY s.code, s.name
      ORDER BY s.name ASC
   `);
@@ -425,6 +526,7 @@ export async function browseCollection(
   // combination without string-building SQL.
   const conditions = [
     namePattern ? sql`AND p.name ILIKE ${namePattern} ESCAPE '\\'` : sql``,
+    filters.game ? sql`AND p.game = ${filters.game}` : sql``,
     filters.setCode ? sql`AND p.set_code = ${filters.setCode}` : sql``,
     filters.locationId
       ? sql`AND c.location_id = ${filters.locationId}::uuid`
@@ -480,10 +582,13 @@ export async function browseCollection(
     printing_id: string;
     oracle_id: string;
     name: string;
+    game: GameSlug;
     set_code: string;
     set_name: string;
     collector_number: string;
     rarity: string;
+    art_url: string | null;
+    image_url: string | null;
     mana_cost: string | null;
     type_line: string | null;
     price_cents: number | null;
@@ -497,10 +602,13 @@ export async function browseCollection(
            c.printing_id::text AS printing_id,
            p.oracle_id::text   AS oracle_id,
            p.name,
+           p.game,
            p.set_code,
            s.name              AS set_name,
            p.collector_number,
            p.rarity,
+           coalesce(p.art_url, p.image_url) AS art_url,
+           p.image_url,
            o.mana_cost,
            o.type_line,
            ${PRICE_FOR_FINISH} AS price_cents
@@ -536,10 +644,13 @@ export async function browseCollection(
       printingId: r.printing_id,
       oracleId: r.oracle_id,
       name: r.name,
+      game: r.game,
       setCode: r.set_code,
       setName: r.set_name,
       collectorNumber: r.collector_number,
       rarity: r.rarity,
+      artUrl: r.art_url,
+      imageUrl: r.image_url,
       manaCost: r.mana_cost,
       typeLine: r.type_line,
       priceCents: r.price_cents,

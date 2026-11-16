@@ -1,11 +1,13 @@
 /**
  * The scheduled job, as Cloud Run runs it.  `npm run ingest`
  *
- * Four independent steps, in order:
+ * Six independent steps, in order:
  *   1. scripts/ingest-cards.ts    — Scryfall bulk cards (the big one).
  *   2. scripts/ingest-products.ts — the MTGJSON sealed-product catalog.
- *   3. scripts/ingest-prices.ts   — prices for the printings you own.
- *   4. scripts/export-backup.ts   — a backup of what cannot be regenerated.
+ *   3. scripts/ingest-pokemon.ts  — the Pokémon card catalog.
+ *   4. scripts/ingest-onepiece.ts — the One Piece card catalog, prices included.
+ *   5. scripts/ingest-prices.ts   — prices for the printings you own.
+ *   6. scripts/export-backup.ts   — a backup of what cannot be regenerated.
  *
  * They run as separate child processes rather than as imported functions, for
  * two reasons. The card ingest streams a ~500 MB expanded file and peaks
@@ -23,22 +25,26 @@
  * all are attempted, all are reported, and the exit code is non-zero if any
  * failed.
  *
- * The order is still deliberate. Prices run after the cards so that a card
- * bought and entered this week is priced in the same run that first ingested
- * its printing, rather than waiting a week for the next one — and the backup
- * runs last so the file it writes includes whatever the three before it
- * changed.
+ * The order is still deliberate. Prices run after all four catalogs, for two
+ * reasons: a card bought and entered this week is priced in the same run that
+ * first ingested its printing, rather than waiting a week for the next one;
+ * and One Piece's snapshot is a copy of `printings.usd_cents`, which its own
+ * ingest writes, so running prices first would record last week's numbers.
+ * The backup runs last so the file it writes includes whatever the five
+ * before it changed.
  *
  * Arguments are passed through, so `--args=--force` on the Cloud Run Job
- * reaches all four. The price job and the backup have nothing to force —
- * there is no upstream version for either to compare against — so they accept
- * the flag and ignore it rather than failing on an argument they did not
- * expect.
+ * reaches all six. The two new catalogs, the price job and the backup have
+ * nothing to force — there is no upstream version for any of them to compare
+ * against — so they accept the flag and ignore it rather than failing on an
+ * argument they did not expect.
  */
 import { spawnSync } from "node:child_process";
 const SCRIPTS = [
   "scripts/ingest-cards.ts",
   "scripts/ingest-products.ts",
+  "scripts/ingest-pokemon.ts",
+  "scripts/ingest-onepiece.ts",
   "scripts/ingest-prices.ts",
   "scripts/export-backup.ts",
 ];

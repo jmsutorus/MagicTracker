@@ -45,9 +45,32 @@ export const LOCATION_EXPLAINER =
  * Which finishes a copy can be in. A copy's finish must also be one of the
  * printing's own `finishes` — a nonfoil-only printing has no foil version to
  * own — and the entry path checks that rather than trusting the client.
+ *
+ * `etched` is Magic's and `reverse` is Pokémon's, and neither is offered for
+ * the other: the per-printing `finishes` array is what gates the picker, so
+ * a finish a game does not have is simply never listed. Reverse holo earns a
+ * value of its own rather than being folded into `foil` because a Pokémon
+ * set has a reverse of almost every card in it, usually alongside a separate
+ * holo, and a collector filling a binder is tracking precisely that
+ * difference.
  */
-export const CARD_FINISHES = ["nonfoil", "foil", "etched"] as const;
+export const CARD_FINISHES = ["nonfoil", "foil", "etched", "reverse"] as const;
 export type CardFinish = (typeof CARD_FINISHES)[number];
+
+/**
+ * What each finish is called where somebody reads it.
+ *
+ * The stored values are terse because they are column values. `reverse` in
+ * particular is not what the thing is called — a Pokémon player says
+ * "reverse holo", and a row reading just "Reverse" beside a card name looks
+ * like it is describing the card rather than the printing.
+ */
+export const CARD_FINISH_LABELS: Record<CardFinish, string> = {
+  nonfoil: "Nonfoil",
+  foil: "Foil",
+  etched: "Etched",
+  reverse: "Reverse holo",
+};
 
 /** Near Mint through Damaged, the grades every marketplace agrees on. */
 export const CARD_CONDITIONS = ["NM", "LP", "MP", "HP", "DMG"] as const;

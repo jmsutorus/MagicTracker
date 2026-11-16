@@ -15,6 +15,8 @@
     "test": "tsx --test \"lib/**/*.test.ts\"",
     "ingest": "tsx scripts/ingest.ts",
     "ingest:cards": "tsx scripts/ingest-cards.ts",
+    "ingest:pokemon": "tsx scripts/ingest-pokemon.ts",
+    "ingest:onepiece": "tsx scripts/ingest-onepiece.ts",
     "ingest:products": "tsx scripts/ingest-products.ts",
     "ingest:prices": "tsx scripts/ingest-prices.ts",
     "backup": "tsx scripts/export-backup.ts",

@@ -77,15 +77,27 @@ export function placeBeside(
  */
 const BOX_CLASS = "pointer-events-none fixed z-50 hidden sm:block";
 
-function PreviewImage({ imageId }: { imageId: string }) {
+function PreviewImage({
+  imageId,
+  imageUrl,
+}: {
+  imageId: string;
+  imageUrl?: string | null;
+}) {
   return (
     /*
-     * Plain <img>: the source is Scryfall's CDN, which their terms require us
-     * to hotlink rather than re-host, so there is nothing for the Next loader
-     * to optimise. The explicit width on the wrapper and `w-full` here are
-     * load-bearing — preflight gives images `max-width: 100%; height: auto`,
-     * which collapses to nothing inside a box that sizes itself to its
-     * contents.
+     * Plain <img>: the source is a CDN we hotlink rather than re-host — which
+     * Scryfall's terms require and the other catalogs are served the same way
+     * — so there is nothing for the Next loader to optimise. The explicit
+     * width on the wrapper and `w-full` here are load-bearing — preflight
+     * gives images `max-width: 100%; height: auto`, which collapses to
+     * nothing inside a box that sizes itself to its contents.
+     *
+     * `imageUrl` is the stored `printings.image_url` and is what every caller
+     * that can reach a non-Magic card passes; deriving from the id is the
+     * fallback for the Magic-only ones. The aspect ratio is hard-coded and
+     * stays correct across games: a Pokémon card is 63×88mm and a Magic card
+     * 63×88mm, which is the same 0.716 this box is built around.
      *
      * No `key` on the element as the id changes: swapping `src` leaves the
      * previous card on screen until the next one has decoded, which is
@@ -93,7 +105,7 @@ function PreviewImage({ imageId }: { imageId: string }) {
      */
     /* eslint-disable-next-line @next/next/no-img-element */
     <img
-      src={cardImageUrl(imageId, "normal")}
+      src={imageUrl ?? cardImageUrl(imageId, "normal")}
       alt=""
       width={488}
       height={680}
@@ -110,9 +122,12 @@ function PreviewImage({ imageId }: { imageId: string }) {
  */
 export function CardPreview({
   imageId,
+  imageUrl,
   at,
 }: {
   imageId: string;
+  /** The stored `printings.image_url`; derived from the id when absent. */
+  imageUrl?: string | null;
   at: PreviewSpot;
 }) {
   return createPortal(
@@ -121,7 +136,7 @@ export function CardPreview({
       className={BOX_CLASS}
       style={{ left: at.left, top: at.top, width: at.width }}
     >
-      <PreviewImage imageId={imageId} />
+      <PreviewImage imageId={imageId} imageUrl={imageUrl} />
     </span>,
     document.body,
   );
@@ -146,12 +161,15 @@ export function ListRowPreview({
   listRef,
   activeIndex,
   imageId,
+  imageUrl,
 }: {
   /** The `<ul>` whose `<li>`s are the rows. */
   listRef: RefObject<HTMLElement | null>;
   activeIndex: number;
   /** The active row's printing, or null to show nothing. */
   imageId: string | null;
+  /** The stored `printings.image_url`; derived from the id when absent. */
+  imageUrl?: string | null;
 }) {
   const boxRef = useRef<HTMLSpanElement>(null);
 
@@ -198,7 +216,7 @@ export function ListRowPreview({
       // the top left corner for a frame first.
       style={{ visibility: "hidden", width: PREVIEW_W }}
     >
-      <PreviewImage imageId={imageId} />
+      <PreviewImage imageId={imageId} imageUrl={imageUrl} />
     </span>,
     document.body,
   );

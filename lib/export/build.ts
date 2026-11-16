@@ -21,14 +21,16 @@ import { BOARD_ORDER_SQL } from "@/lib/decks/queries";
  */
 
 /**
- * 3 since the wishlist: a whole top-level `wishlist` array was added, and a
- * version-2 file simply has no record of it.
+ * 4 since multi-game: every collection row now carries `game` and
+ * `externalId`, without which a Pokémon card in a backup is a name and a
+ * UUID that means nothing outside the database that wrote it.
  *
- * (2 was cubes: `decks[].targetSize`, without which a cube came back missing
- * the size it was built to.) A reader that only knows an earlier version can
- * still read everything it knew — nothing is renamed or removed.
+ * (3 was the wishlist: a whole top-level `wishlist` array. 2 was cubes:
+ * `decks[].targetSize`, without which a cube came back missing the size it
+ * was built to.) A reader that only knows an earlier version can still read
+ * everything it knew — nothing is renamed or removed.
  */
-export const EXPORT_FORMAT_VERSION = 3;
+export const EXPORT_FORMAT_VERSION = 4;
 
 export type ExportLocation = {
   id: string;
@@ -40,6 +42,18 @@ export type ExportLocation = {
 export type ExportCollectionItem = {
   printingId: string;
   name: string;
+  /**
+   * mtg | pokemon | onepiece.
+   *
+   * Carried in the backup because `printingId` alone no longer identifies
+   * the card to anyone outside this app: it is a Scryfall id for Magic and a
+   * UUID this app derived for everything else (lib/games/ids.ts). The game,
+   * the set code and the collector number together are what a human — or a
+   * rebuilt database — can resolve a row from.
+   */
+  game: string;
+  /** This catalog's own id for the card, where it has one: `sv8-1`. */
+  externalId: string | null;
   setCode: string;
   collectorNumber: string;
   finish: string;
@@ -134,6 +148,8 @@ export async function buildExport(): Promise<CollectionExport> {
   const { rows: items } = await db.execute<{
     printing_id: string;
     name: string;
+    game: string;
+    external_id: string | null;
     set_code: string;
     collector_number: string;
     finish: string;
@@ -146,6 +162,8 @@ export async function buildExport(): Promise<CollectionExport> {
   }>(sql`
     SELECT c.printing_id::text AS printing_id,
            o.name,
+           p.game,
+           p.external_id,
            p.set_code,
            p.collector_number,
            c.finish,
@@ -278,6 +296,8 @@ export async function buildExport(): Promise<CollectionExport> {
   const collection: ExportCollectionItem[] = items.map((i) => ({
     printingId: i.printing_id,
     name: i.name,
+    game: i.game,
+    externalId: i.external_id,
     setCode: i.set_code,
     collectorNumber: i.collector_number,
     finish: i.finish,

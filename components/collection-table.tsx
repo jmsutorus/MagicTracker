@@ -7,6 +7,8 @@ import { moveItemsAction, removeItemsAction } from "@/app/collection/actions";
 import { CardArt } from "@/components/card-art";
 import { CardLink } from "@/components/card-link";
 import { CollectionRowControls } from "@/components/collection-row-controls";
+import { GameBadge } from "@/components/game-badge";
+import { CARD_FINISH_LABELS as FINISH_LABELS } from "@/lib/collection/constants";
 import type { CollectionRow } from "@/lib/collection/queries";
 import { formatCents } from "@/lib/prices/constants";
 
@@ -262,7 +264,7 @@ export function CollectionTable({
                     />
                   </td>
                   <td className="py-2 pl-0 pr-2 align-top">
-                    <CardArt printingId={row.printingId} />
+                    <CardArt printingId={row.printingId} src={row.artUrl} />
                   </td>
                   <td className="px-3 py-2 align-top">
                     {/* Hover or focus the name to see the card, without
@@ -271,6 +273,7 @@ export function CollectionTable({
                     <CardLink
                       oracleId={row.oracleId}
                       imageId={row.printingId}
+                      imageUrl={row.imageUrl}
                       name={row.name}
                     />
                     <span className="block text-xs text-muted">
@@ -289,7 +292,7 @@ export function CollectionTable({
                       */}
                       {row.finish !== "nonfoil" ? (
                         <span className="ml-1.5 text-accent">
-                          {row.finish === "etched" ? "Etched" : "Foil"}
+                          {FINISH_LABELS[row.finish] ?? row.finish}
                         </span>
                       ) : null}
                       {row.condition !== "NM" ? (
@@ -304,8 +307,9 @@ export function CollectionTable({
                     <span className="font-mono text-xs text-muted">
                       #{row.collectorNumber}
                     </span>
-                    <span className="block text-xs text-muted">
+                    <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
                       {row.rarity}
+                      <GameBadge game={row.game} />
                     </span>
                   </td>
                   <td className="hidden px-4 py-2 text-right align-top md:table-cell">

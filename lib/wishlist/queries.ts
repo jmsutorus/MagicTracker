@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 
 import { representativePrinting } from "@/lib/cards/art";
 import { getDb } from "@/lib/db";
+import type { GameSlug } from "@/lib/games/constants";
 
 /**
  * Reading the wishlist.
@@ -17,6 +18,7 @@ export type WishlistRow = {
   id: string;
   oracleId: string;
   name: string;
+  game: GameSlug;
   typeLine: string | null;
   manaCost: string | null;
   quantity: number;
@@ -35,6 +37,8 @@ export type WishlistRow = {
    * rendering a thumbnail into a claim about the row.
    */
   artPrintingId: string | null;
+  /** That printing's stored picture — the crop where the catalog has one. */
+  artUrl: string | null;
   setCode: string | null;
   setName: string | null;
   collectorNumber: string | null;
@@ -125,6 +129,8 @@ export async function listWishlist(): Promise<WishlistSummary> {
     id: string;
     oracle_id: string;
     name: string;
+    game: GameSlug;
+    art_url: string | null;
     type_line: string | null;
     mana_cost: string | null;
     quantity: number;
@@ -140,19 +146,39 @@ export async function listWishlist(): Promise<WishlistSummary> {
     price_cents: number | null;
     owned_copies: number;
   }>(sql`
+    /*
+     * The art printing is resolved once in a CTE rather than inline.
+     *
+     * It used to be one coalesce() in the select list, which was fine while
+     * the id was all anyone needed. Now the row also wants that printing's
+     * stored image URLs — no catalog but Scryfall's lets them be derived
+     * from the id — and repeating the subquery once per column would run the
+     * representative-printing lookup three times for every wishlist row.
+     * Naming it once lets it be joined instead.
+     *
+     * (No backticks in this comment: the whole query is a JS template
+     * literal, so one would end the string. Same note as lib/cards/search.ts.)
+     */
+    WITH base AS (
+      SELECT w.*,
+             coalesce(
+               w.printing_id,
+               ${representativePrinting(sql`w.oracle_id`)}
+             ) AS art_printing_id
+        FROM wishlist_items w
+    )
     SELECT w.id::text            AS id,
            w.oracle_id::text     AS oracle_id,
            o.name,
+           o.game,
            o.type_line,
            o.mana_cost,
            w.quantity,
            w.note,
            w.created_at::text    AS created_at,
            w.printing_id::text   AS printing_id,
-           coalesce(
-             w.printing_id,
-             ${representativePrinting(sql`w.oracle_id`)}
-           )::text               AS art_printing_id,
+           w.art_printing_id::text AS art_printing_id,
+           coalesce(ap.art_url, ap.image_url) AS art_url,
            pr.set_code,
            s.name                AS set_name,
            pr.collector_number,
@@ -160,9 +186,10 @@ export async function listWishlist(): Promise<WishlistSummary> {
            w.finish,
            ${PRICE_EXPR}         AS price_cents,
            ${OWNED_EXPR}         AS owned_copies
-      FROM wishlist_items w
+      FROM base w
       JOIN oracle_cards o ON o.oracle_id = w.oracle_id
       LEFT JOIN printings pr ON pr.scryfall_id = w.printing_id
+      LEFT JOIN printings ap ON ap.scryfall_id = w.art_printing_id
       LEFT JOIN sets s ON s.code = pr.set_code
      ORDER BY w.created_at DESC, o.name ASC
   `);
@@ -171,6 +198,8 @@ export async function listWishlist(): Promise<WishlistSummary> {
     id: r.id,
     oracleId: r.oracle_id,
     name: r.name,
+    game: r.game,
+    artUrl: r.art_url,
     typeLine: r.type_line,
     manaCost: r.mana_cost,
     quantity: r.quantity,

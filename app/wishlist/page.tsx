@@ -39,7 +39,22 @@ export default async function WishlistPage() {
    * including it in the mass-entry list would cause exactly that.
    */
   const toBuy = rows.filter((row) => row.ownedCopies < row.quantity);
-  const entries = toBuy.map((row) => ({
+
+  /*
+   * The mass-entry handoff is Magic-only, so the list given to the stores is
+   * too.
+   *
+   * Both buttons paste a decklist — "4 Sol Ring (BLB) 123" — into a bulk
+   * page that is a Magic bulk page: Mana Pool sells nothing else, and
+   * TCGplayer's mass entry is per category. A Pokémon line in that paste
+   * does not half-work, it fails to match and silently drops out of the
+   * cart, which is the kind of quiet wrong answer this app's buy list exists
+   * to avoid.
+   */
+  const buyable = toBuy.filter((row) => row.game === "mtg");
+  const otherGameRows = toBuy.length - buyable.length;
+
+  const entries = buyable.map((row) => ({
     quantity: row.quantity - row.ownedCopies,
     name: row.name,
     // A row that named a printing means that printing; one that did not will
@@ -95,6 +110,16 @@ export default async function WishlistPage() {
                 </p>
               ) : null}
 
+              {otherGameRows > 0 ? (
+                <p className="mt-2 text-sm text-muted">
+                  {otherGameRows === 1
+                    ? "One of these is not a Magic card, so it is not on the buy list — "
+                    : `${otherGameRows} of these are not Magic cards, so they are not on the buy list — `}
+                  the stores’ bulk-paste pages take a Magic decklist and
+                  nothing else. Each card’s own page has a store link.
+                </p>
+              ) : null}
+
               {entries.length > 0 ? (
                 <div className="mt-4 border-t border-border pt-4">
                   <PurchaseButtons label="the wishlist" entries={entries} />
@@ -112,6 +137,7 @@ export default async function WishlistPage() {
                   >
                     <CardArt
                       printingId={row.artPrintingId}
+                      src={row.artUrl}
                       className="h-12 w-12"
                     />
 

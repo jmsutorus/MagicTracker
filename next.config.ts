@@ -25,11 +25,21 @@ const nextConfig: NextConfig = {
     },
   },
   images: {
-    // Card images are hotlinked from Scryfall's CDN rather than re-hosted,
-    // which their API terms require. See PLAN.md §4.
+    // Card images are hotlinked from the catalogs' own CDNs rather than
+    // re-hosted, which Scryfall's API terms require and the others are
+    // served for. See PLAN.md §4.
+    //
+    // The non-Scryfall hosts arrived with multi-game support: Pokémon images
+    // are served from scrydex (recent sets) and pokemontcg.io (older ones),
+    // and One Piece images from the OPTCG API's own media path. Listed even
+    // though every <Image> here passes `unoptimized`, so that a future
+    // optimised one does not fail at runtime on a host nobody remembered.
     remotePatterns: [
       { protocol: "https", hostname: "cards.scryfall.io" },
       { protocol: "https", hostname: "svgs.scryfall.io" },
+      { protocol: "https", hostname: "images.pokemontcg.io" },
+      { protocol: "https", hostname: "images.scrydex.com" },
+      { protocol: "https", hostname: "optcgapi.com" },
     ],
   },
 };

@@ -710,6 +710,10 @@ export async function searchDeckCards(
              END AS rank
         FROM oracle_cards o
        WHERE o.name ILIKE ${pattern} ESCAPE '\\'
+         -- Decks are a Magic feature: there is no Pokémon commander and no
+         -- One Piece format legality, so those cards must not be offerable
+         -- here even though they now share this table.
+         AND o.game = 'mtg'
          -- Tokens and art series are not cards you put in a deck.
          AND o.layout NOT IN ('token', 'double_faced_token', 'art_series', 'emblem')
        ORDER BY rank, o.edhrec_rank NULLS LAST, o.name

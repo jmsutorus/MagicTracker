@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { CardArt } from "@/components/card-art";
+import { GameBadge } from "@/components/game-badge";
 import { ListRowPreview } from "@/components/card-preview";
 import { ManaCost } from "@/components/mana-cost";
 import type { CardSearchResult } from "@/lib/cards/search";
@@ -180,11 +181,13 @@ export function HeaderSearch() {
             >
               <CardArt
                 printingId={result.newestPrintingId}
+                src={result.newestArtUrl}
                 className="h-6 w-8"
               />
               <span className="min-w-0 flex-1 truncate text-sm">
                 {result.name}
               </span>
+              <GameBadge game={result.game} />
               <ManaCost cost={result.manaCost} size={12} />
             </li>
           ))}
@@ -196,6 +199,7 @@ export function HeaderSearch() {
           listRef={listRef}
           activeIndex={activeIndex}
           imageId={results[activeIndex]?.newestPrintingId ?? null}
+          imageUrl={results[activeIndex]?.newestImageUrl ?? null}
         />
       ) : null}
     </div>

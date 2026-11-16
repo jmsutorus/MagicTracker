@@ -48,6 +48,19 @@ export async function listOwnedPairs(): Promise<OwnedPair[]> {
     sql`
       SELECT DISTINCT c.printing_id::text AS printing_id, c.finish
         FROM collection_items c
+        JOIN printings p ON p.scryfall_id = c.printing_id
+       /*
+        * Magic only, because this list is handed to Scryfall's collection
+        * endpoint and nothing else in it has a Scryfall id. The other games'
+        * printing ids are UUIDs this app derived (lib/games/ids.ts) — asking
+        * Scryfall about them would mean a weekly request full of identifiers
+        * that cannot exist, answered with a not_found list as long as the
+        * non-Magic part of the collection.
+        *
+        * Those games are priced by writeCatalogPriceSnapshots() below, from
+        * the prices their own catalogs publish.
+        */
+       WHERE p.game = 'mtg'
        -- The output names, not c.printing_id: under SELECT DISTINCT an
        -- ORDER BY expression has to be in the select list, and the cast to
        -- text means the bare column is not.
@@ -55,6 +68,44 @@ export async function listOwnedPairs(): Promise<OwnedPair[]> {
     `,
   );
   return rows.map((r) => ({ printingId: r.printing_id, finish: r.finish }));
+}
+
+/**
+ * Price rows for the games whose own catalogs carry prices.
+ *
+ * One Piece publishes a daily market price per card, which its ingest writes
+ * into `printings.usd_cents`. So there is nothing to fetch: the number is
+ * already in the row, and the snapshot copies it into the history under the
+ * date it was true. That is what keeps those cards in the value chart rather
+ * than only in the "what is it worth right now" figure.
+ *
+ * Pokémon's bulk data carries no prices at all, so Pokémon cards produce no
+ * rows here and are counted as unpriced — which the value page already
+ * reports in as many words, and which is better than inventing a zero.
+ *
+ * One INSERT ... SELECT because, unlike the Scryfall path, there is no
+ * network call in the middle: source and destination are the same database.
+ */
+export async function writeCatalogPriceSnapshots(
+  snapshotDate: string,
+  source: PriceSource,
+): Promise<number> {
+  const db = getDb();
+
+  const result = await db.execute(sql`
+    INSERT INTO price_snapshots
+      (printing_id, finish, source, snapshot_date, price_cents)
+    SELECT DISTINCT c.printing_id, c.finish, ${source},
+           ${snapshotDate}::date, p.usd_cents
+      FROM collection_items c
+      JOIN printings p ON p.scryfall_id = c.printing_id
+     WHERE p.game <> 'mtg'
+       AND p.usd_cents IS NOT NULL
+    ON CONFLICT (printing_id, finish, source, snapshot_date) DO UPDATE
+      SET price_cents = EXCLUDED.price_cents
+  `);
+
+  return result.rowCount ?? 0;
 }
 
 /**
@@ -84,25 +135,29 @@ export async function takeSnapshot(options?: {
       )
     ).rows[0].today;
 
+  /*
+   * The games that price themselves go first, and unconditionally.
+   *
+   * It is a database-only statement, so it costs nothing when there is
+   * nothing to write — and running it before the early return below is what
+   * keeps a collection holding no Magic at all from being recorded as worth
+   * zero. `owned` is Magic's pairs now, so its emptiness says nothing about
+   * whether the collection is empty.
+   */
+  const catalogPriced = await writeCatalogPriceSnapshots(snapshotDate, source);
+
   if (owned.length === 0) {
     // An empty collection is not an error, and it still deserves a row: a
     // zero in the history is the difference between "worth nothing" and "the
     // job never ran", which is exactly what the chart needs to tell apart.
-    await writeValueSnapshot(snapshotDate, source, {
-      totalCents: 0,
-      pricedCopies: 0,
-      unpricedCopies: 0,
-      unpricedItems: 0,
-    });
+    const totals = await writeValueSnapshotFromPrices(snapshotDate, source);
     return {
       snapshotDate,
       owned: 0,
-      priced: 0,
+      priced: catalogPriced,
       unpriced: [],
       notFound: [],
-      totalCents: 0,
-      pricedCopies: 0,
-      unpricedCopies: 0,
+      ...totals,
     };
   }
 
@@ -114,16 +169,12 @@ export async function takeSnapshot(options?: {
   if (priced.length > 0)
     await writePriceSnapshots(snapshotDate, source, priced);
 
-  const totals = await writeValueSnapshotFromPrices(
-    snapshotDate,
-    source,
-    unpriced.length,
-  );
+  const totals = await writeValueSnapshotFromPrices(snapshotDate, source);
 
   return {
     snapshotDate,
     owned: owned.length,
-    priced: priced.length,
+    priced: priced.length + catalogPriced,
     unpriced,
     notFound,
     ...totals,
@@ -178,11 +229,11 @@ async function writePriceSnapshots(
 async function writeValueSnapshotFromPrices(
   snapshotDate: string,
   source: PriceSource,
-  unpricedItems: number,
 ): Promise<{
   totalCents: number;
   pricedCopies: number;
   unpricedCopies: number;
+  unpricedItems: number;
 }> {
   const db = getDb();
 
@@ -190,12 +241,25 @@ async function writeValueSnapshotFromPrices(
     total_cents: number;
     priced_copies: number;
     unpriced_copies: number;
+    unpriced_items: number;
   }>(sql`
     SELECT coalesce(sum(c.quantity * s.price_cents), 0)::int AS total_cents,
            coalesce(sum(c.quantity) FILTER (WHERE s.price_cents IS NOT NULL), 0)::int
              AS priced_copies,
            coalesce(sum(c.quantity) FILTER (WHERE s.price_cents IS NULL), 0)::int
-             AS unpriced_copies
+             AS unpriced_copies,
+           /*
+            * Counted here rather than passed in.
+            *
+            * It used to be the length of the list Scryfall had no price for,
+            * which was the same number while Magic was the only game. It no
+            * longer is: a Pokémon card has no price from anywhere, and it
+            * never reaches Scryfall to be counted as missing one. Deriving
+            * it from the same join as the copies keeps the two consistent,
+            * whatever the cards are.
+            */
+           count(DISTINCT (c.printing_id, c.finish))
+             FILTER (WHERE s.price_cents IS NULL)::int AS unpriced_items
       FROM collection_items c
       LEFT JOIN price_snapshots s
              ON s.printing_id = c.printing_id
@@ -208,12 +272,10 @@ async function writeValueSnapshotFromPrices(
     totalCents: rows[0]?.total_cents ?? 0,
     pricedCopies: rows[0]?.priced_copies ?? 0,
     unpricedCopies: rows[0]?.unpriced_copies ?? 0,
+    unpricedItems: rows[0]?.unpriced_items ?? 0,
   };
 
-  await writeValueSnapshot(snapshotDate, source, {
-    ...totals,
-    unpricedItems,
-  });
+  await writeValueSnapshot(snapshotDate, source, totals);
 
   return totals;
 }

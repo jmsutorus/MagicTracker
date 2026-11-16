@@ -705,13 +705,56 @@ you just bought cannot quietly go back on the buy list.
 markets; one line through both would show a price no copy ever traded at. One chart each, one
 hue, no legend, and nothing drawn at all until there are two points.
 
+### Phase 9 — other games (Pokémon and One Piece)
+
+Added on top of the eight phases: the collection, card search, card pages and the wishlist now
+hold Pokémon and One Piece cards as well. Decks, set completion and sealed products stay
+Magic-only — those are built around one game's rules, and there is nothing to track for the
+other two.
+
+*One set of tables, not three.* `printings` and `oracle_cards` gained a `game` column defaulting
+to `'mtg'`. Parallel tables per game would have meant a parallel `collection_items` per game, or
+a polymorphic foreign key, and the collection is the one thing in here that must stay simple.
+Every Magic-only query is scoped with `game = 'mtg'` explicitly rather than left open, which is
+what stops a pasted decklist line reading `2 Lightning` from resolving to a Pokémon card.
+
+*Derived UUIDs instead of a wider key column.* The other two catalogs key cards on strings
+(`sv8-1`, `OP11-004_p1`). Widening `printings.scryfall_id` from `uuid` to `text` would have meant
+dropping and recreating six foreign keys and rewriting every `::uuid` cast in the app, with 1,800
+rows of irreplaceable collection data pointing at it. Instead each non-Magic card gets a UUIDv5
+derived from `<game>:<kind>:<native id>` under a fixed namespace (`lib/games/ids.ts`), computed
+with `node:crypto` rather than a new dependency. Deterministic, so an ingest is an upsert; the
+native id is kept in `external_id`; and the column keeps its name because renaming it would touch
+every query for no behaviour change.
+
+*Set codes are prefixed, not derived.* `pkm-sv8`, `opc-op11`, Magic's left bare. That keeps
+`sets.code` a single primary key, and it is collision-free because every one of Magic's 1,068
+codes is lowercase alphanumeric and at most six characters — a hyphen is the one character that
+cannot appear in one.
+
+*Image URLs are stored now, for every game.* Scryfall's are derivable from the card id, so
+nothing was stored; no other catalog works that way. `printings.image_url` and `art_url` became
+the single source, backfilled across all 110,963 Magic rows in migration 0016. Images are
+hotlinked from each source's CDN and never re-hosted, which all three sources' terms require.
+
+*Pokémon has no prices, and that is reported rather than papered over.* No free bulk source
+publishes them. Those copies are counted as unpriced, exactly as a Magic card Scryfall has no
+price for already was. One Piece publishes a market price per card, which its ingest writes into
+the row and the weekly job copies into `price_snapshots` without a network call — and the Scryfall
+leg is scoped to Magic, because derived UUIDs mean nothing to Scryfall.
+
+*Weiss Schwarz was dropped for want of a source.* EncoreDecks' API returns SPA 404s on every
+path, limelight.cards returns 401, and neither apitcg.com nor JustTCG carries the game. Nothing
+here precludes it: adding a slug to `lib/games/constants.ts` and a projector is the whole shape
+of a new game.
+
 ---
 
 ## 8. Risks and constraints
 
 | Risk | Mitigation |
 |---|---|
-| Neon Free is 1 GB/project | Projected columns only, no raw JSON blobs, image URLs derived from UUID, owned-only price snapshots. Projected ~150–200 MB steady state. Writes block (data is never deleted) if exceeded, so track it in `ingest_runs` |
+| Neon Free is 1 GB/project | Projected columns only, no raw JSON blobs, owned-only price snapshots. Image URLs are stored rather than derived since three games' catalogs are in here, which costs ~15 MB across 136k printings. Projected ~200–250 MB steady state. Writes block (data is never deleted) if exceeded, so track it in `ingest_runs` |
 | Neon Free autosuspends after 5 min | Cold start of a few hundred ms on first request. Documented here so it isn't mistaken for a bug |
 | Neon Free is 100 CU-hours/mo, 5 GB egress | Far beyond single-user usage; worth a glance in the console after Phase 2 |
 | **App Hosting requires Blaze** (billing account) | Free quotas (10 GiB/mo bandwidth, Cloud Run 2M req, 2,500 build-min) should keep it at ~$0; `minInstances: 0` means idle costs nothing. Set a budget alert and a Cloud Run spend cap |
@@ -719,6 +762,8 @@ hue, no legend, and nothing drawn at all until there are two points.
 | 500 MB bulk file vs serverless limits | Ingest never runs in a Vercel function; it's an Actions job |
 | Scryfall access could be restricted if misused | §4 compliance rules from the first commit, not retrofitted. The required headers are already proven necessary — the API returns 403 without them |
 | MTGJSON lags brand-new products by days | Manual ingest trigger plus unresolved-row logging, so gaps are visible rather than silent |
+| The Pokémon and One Piece sources are a community repo and a small API, either of which could go away | Neither holds anything irreplaceable: the collection rows survive a dead catalog, and they carry the card's game, name, set code and native id in every backup. A replacement source keyed on the same native ids derives the same UUIDs and the collection reattaches |
+| Pokémon has no price source at all | Reported as unpriced copies on the value page rather than counted as zero. Revisit if a free bulk source appears |
 | No offline entry (the Firestore trade-off) | Accepted. Revisit via a PWA IndexedDB outbox only if it actually bites |
 | Variant/promo scope is a judgment call | Stored per-set rules, not constants; revisit once real sets are on screen |
 
@@ -726,8 +771,8 @@ hue, no legend, and nothing drawn at all until there are two points.
 
 ## 9. Open questions
 
-None. All eight phases are built, deployed and verified, and cubes and Standard decks are in on
-top of them;
+None. All eight phases are built, deployed and verified, with cubes, Standard decks and a
+ninth phase for Pokémon and One Piece on top of them;
 what is left is in §10 by choice, not by blockage. The one outstanding manual step is optional: connecting the
 GitHub repo to Firebase App Hosting for push-to-deploy, which needs a browser to
 authorize the Firebase GitHub App. Until then, deploying is

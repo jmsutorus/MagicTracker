@@ -4,14 +4,18 @@ import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
 import { CollectionFilters } from "@/components/collection-filters";
 import { CollectionTable } from "@/components/collection-table";
+import { GameTabs } from "@/components/game-tabs";
 import { requireUser } from "@/lib/auth/dal";
 import { isCollectionSort } from "@/lib/collection/constants";
 import {
   browseCollection,
   getCollectionTotals,
+  listCollectedGames,
   listCollectedSets,
+  listCollectionFacets,
   listLocations,
 } from "@/lib/collection/queries";
+import { parseGame, type GameSlug } from "@/lib/games/constants";
 
 export const metadata = { title: "Collection · MagicTracker" };
 
@@ -33,6 +37,9 @@ export default async function CollectionPage({
 
   const params = await searchParams;
   const q = one(params.q)?.slice(0, 100) ?? "";
+  // Null means every game, which is also what an unrecognised slug falls
+  // back to — a stale link should show the collection, not an error.
+  const game = parseGame(one(params.game));
   const setCode = one(params.set) ?? "";
   const locationId = one(params.location) ?? "";
   const finish = one(params.finish) ?? "";
@@ -44,21 +51,25 @@ export default async function CollectionPage({
   const pageParam = Number.parseInt(one(params.page) ?? "1", 10);
   const page = Number.isSafeInteger(pageParam) && pageParam > 0 ? pageParam : 1;
 
-  const [totals, locations, collectedSets, result] = await Promise.all([
-    getCollectionTotals(),
-    listLocations(),
-    listCollectedSets(),
-    browseCollection({
-      q: q || undefined,
-      setCode: setCode || undefined,
-      locationId: locationId || undefined,
-      finish: finish || undefined,
-      rarity: rarity || undefined,
-      sort,
-      limit: PAGE_SIZE,
-      offset: (page - 1) * PAGE_SIZE,
-    }),
-  ]);
+  const [totals, locations, collectedSets, facets, games, result] =
+    await Promise.all([
+      getCollectionTotals(game ?? undefined),
+      listLocations(),
+      listCollectedSets(game ?? undefined),
+      listCollectionFacets(game ?? undefined),
+      listCollectedGames(),
+      browseCollection({
+        q: q || undefined,
+        game: game ?? undefined,
+        setCode: setCode || undefined,
+        locationId: locationId || undefined,
+        finish: finish || undefined,
+        rarity: rarity || undefined,
+        sort,
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
+      }),
+    ]);
 
   const filtered = Boolean(q || setCode || locationId || finish || rarity);
   const lastPage = Math.max(1, Math.ceil(result.matchingRows / PAGE_SIZE));
@@ -66,12 +77,31 @@ export default async function CollectionPage({
   function pageHref(target: number) {
     const search = new URLSearchParams();
     if (q) search.set("q", q);
+    if (game) search.set("game", game);
     if (setCode) search.set("set", setCode);
     if (locationId) search.set("location", locationId);
     if (finish) search.set("finish", finish);
     if (rarity) search.set("rarity", rarity);
     if (sort !== "name") search.set("sort", sort);
     if (target > 1) search.set("page", String(target));
+    const query = search.toString();
+    return query.length > 0 ? `/collection?${query}` : "/collection";
+  }
+
+  /**
+   * A tab keeps the filters that survive the move and drops the ones that
+   * cannot. A set code, a rarity and a finish all belong to one game's
+   * vocabulary — `pkm-sv8`, "Illustration Rare", `reverse` — so carrying
+   * them across would land on a list that is empty for a reason the filter
+   * bar cannot explain. The name box and the location do carry: both mean
+   * the same thing in every game.
+   */
+  function gameHref(target: GameSlug | null) {
+    const search = new URLSearchParams();
+    if (q) search.set("q", q);
+    if (target) search.set("game", target);
+    if (locationId) search.set("location", locationId);
+    if (sort !== "name") search.set("sort", sort);
     const query = search.toString();
     return query.length > 0 ? `/collection?${query}` : "/collection";
   }
@@ -130,8 +160,12 @@ export default async function CollectionPage({
                 : ""}
             </p>
 
+            <GameTabs games={games} current={game} hrefFor={gameHref} />
+
             <CollectionFilters
               sets={collectedSets}
+              rarities={facets.rarities}
+              finishes={facets.finishes}
               locations={locations.map((l) => ({
                 id: l.id,
                 name: l.name,

@@ -240,6 +240,13 @@ export async function resolveImport(
    * front-face match is needed. It is a *fallback* and not an equal: the
    * front face of one card can be the whole name of another, and preferring
    * the exact match means the card actually called that always wins.
+   *
+   * Both tiers are restricted to Magic. Everything this module understands —
+   * "4x Lightning Bolt (BLB) 123", split-card faces, Moxfield and Arena
+   * exports — is a Magic decklist format, and the catalog now holds 25,000
+   * cards from games with no decklists at all. Without the restriction a
+   * pasted line reading "2 Lightning" could resolve against a Pokémon card
+   * and file it into a binder nobody asked about.
    */
   const nameMatches = new Map<string, OracleRow[]>();
 
@@ -251,7 +258,7 @@ export async function resolveImport(
       SELECT w.key, o.oracle_id::text AS oracle_id, o.name, o.type_line,
              o.mana_cost, o.color_identity, 'exact' AS how
         FROM wanted w
-        JOIN oracle_cards o ON lower(o.name) = w.key
+        JOIN oracle_cards o ON lower(o.name) = w.key AND o.game = 'mtg'
       UNION ALL
       SELECT w.key, o.oracle_id::text AS oracle_id, o.name, o.type_line,
              o.mana_cost, o.color_identity, 'face' AS how
@@ -259,6 +266,7 @@ export async function resolveImport(
         JOIN oracle_cards o
           ON o.name LIKE '% // %'
          AND lower(split_part(o.name, ' // ', 1)) = w.key
+         AND o.game = 'mtg'
     `);
 
     for (const r of rows) {

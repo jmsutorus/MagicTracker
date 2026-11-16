@@ -241,6 +241,12 @@ export async function listSetProgress(): Promise<SetProgress[]> {
       SELECT DISTINCT p.set_code
         FROM collection_items c
         JOIN printings p ON p.scryfall_id = c.printing_id
+       -- Magic only. This list is what /sets renders, and every number on
+       -- it is computed from the completion scope flags — booster-only,
+       -- promos, extras — which describe how a Magic set is printed. A
+       -- Pokémon set appearing here would be given a target nobody chose
+       -- and a percentage that means nothing.
+       WHERE p.game = 'mtg'
     ),
     caps AS (
       SELECT set_code,
@@ -559,6 +565,10 @@ export async function searchSets(
     SELECT s.code, s.name, s.released_at::text AS released_at
       FROM sets s
      WHERE NOT s.digital
+       -- Set completion is Magic-only: the scope flags it is built on
+       -- (booster-obtainable, promo, extra) describe how a Magic set is
+       -- printed and have no counterpart in the other games' data.
+       AND s.game = 'mtg'
        AND (s.name ILIKE ${pattern} ESCAPE '\\' OR s.code ILIKE ${pattern} ESCAPE '\\')
        AND EXISTS (SELECT 1 FROM printings p WHERE p.set_code = s.code AND p.lang = 'en')
      ORDER BY (lower(s.code) = lower(${q})) DESC,

@@ -4,15 +4,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 import {
-  CARD_FINISHES,
   COLLECTION_SORTS,
   COLLECTION_SORT_LABELS,
 } from "@/lib/collection/constants";
 
 /** How long after the last keystroke the name filter runs. */
 const TYPING_QUIET_MS = 300;
-
-const RARITIES = ["common", "uncommon", "rare", "mythic", "special", "bonus"];
 
 /**
  * The collection filter bar.
@@ -33,9 +30,22 @@ const RARITIES = ["common", "uncommon", "rare", "mythic", "special", "bonus"];
  */
 export function CollectionFilters({
   sets,
+  rarities,
+  finishes,
   locations,
 }: {
   sets: { code: string; name: string; copies: number }[];
+  /**
+   * The rarities and finishes present in what is being browsed, from
+   * listCollectionFacets — not a constant.
+   *
+   * The rarity list was hard-coded to Magic's six, which is wrong the moment
+   * the collection holds a card whose rarity is "Illustration Rare" or
+   * "Secret Rare". Reading them from the rows means the dropdown offers
+   * exactly the values that can match, in whichever game is being shown.
+   */
+  rarities: string[];
+  finishes: string[];
   locations: { id: string; name: string; cardCount: number }[];
 }) {
   const router = useRouter();
@@ -161,7 +171,8 @@ export function CollectionFilters({
               apply({ q: text });
             }
           }}
-          placeholder="bolt"
+          // "bolt" read as a Magic-only hint on the Pokémon tab.
+          placeholder="part of a name"
           type="search"
           autoComplete="off"
           className="rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
@@ -208,7 +219,7 @@ export function CollectionFilters({
           className={selectClass}
         >
           <option value="">any</option>
-          {CARD_FINISHES.map((f) => (
+          {finishes.map((f) => (
             <option key={f} value={f}>
               {f}
             </option>
@@ -224,7 +235,7 @@ export function CollectionFilters({
           className={selectClass}
         >
           <option value="">any</option>
-          {RARITIES.map((r) => (
+          {rarities.map((r) => (
             <option key={r} value={r}>
               {r}
             </option>

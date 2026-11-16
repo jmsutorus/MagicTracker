@@ -8,6 +8,7 @@ import {
   createLocationAction,
 } from "@/app/collection/actions";
 import { ListRowPreview } from "@/components/card-preview";
+import { GameBadge } from "@/components/game-badge";
 import { useReturnFocus } from "@/components/use-return-focus";
 import type { CardSearchResult } from "@/lib/cards/search";
 import type {
@@ -17,12 +18,13 @@ import type {
 } from "@/lib/collection/queries";
 import {
   CARD_CONDITIONS,
-  CARD_FINISHES,
+  CARD_FINISH_LABELS,
   LOCATION_KINDS,
   LOCATION_KIND_LABELS,
   type CardCondition,
   type CardFinish,
 } from "@/lib/collection/constants";
+import { finishesForGame, type GameSlug } from "@/lib/games/constants";
 
 const DEBOUNCE_MS = 150;
 const MAX_LOG = 25;
@@ -62,6 +64,17 @@ type Props = {
  */
 export function CollectionEntry({ locations, sets, defaultLocationId }: Props) {
   const [mode, setMode] = useState<Mode>("number");
+
+  /*
+   * The game being entered, which only narrows the finish picker.
+   *
+   * Set by whichever mode knows: pinning a set in number mode, or choosing a
+   * card in name mode. It starts at Magic because that is what this
+   * collection mostly is, and it is never authoritative — addCopies() checks
+   * the finish against that printing's own `finishes` on the server. This
+   * just keeps the dropdown from offering an etched Pokémon card.
+   */
+  const [game, setGame] = useState<GameSlug>("mtg");
 
   // Sticky across entries — the whole point. A pack is one finish and one
   // condition going into one place, so asking again per card would be absurd.
@@ -157,6 +170,7 @@ export function CollectionEntry({ locations, sets, defaultLocationId }: Props) {
       </div>
 
       <StickyControls
+        game={game}
         finish={finish}
         setFinish={setFinish}
         condition={condition}
@@ -190,11 +204,17 @@ export function CollectionEntry({ locations, sets, defaultLocationId }: Props) {
         <NumberMode
           sets={sets}
           onCommit={commit}
+          onGame={setGame}
           busy={busy}
           onError={setError}
         />
       ) : (
-        <NameMode onCommit={commit} busy={busy} onError={setError} />
+        <NameMode
+          onCommit={commit}
+          onGame={setGame}
+          busy={busy}
+          onError={setError}
+        />
       )}
 
       {error ? (
@@ -237,6 +257,7 @@ function ModeButton({
 }
 
 function StickyControls({
+  game,
   finish,
   setFinish,
   condition,
@@ -247,6 +268,8 @@ function StickyControls({
   onLocationCreated,
   onError,
 }: {
+  /** Narrows the finish list; see the note where it is declared. */
+  game: GameSlug;
   finish: CardFinish;
   setFinish: (f: CardFinish) => void;
   condition: CardCondition;
@@ -260,6 +283,22 @@ function StickyControls({
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [newKind, setNewKind] = useState<string>("box");
+
+  const available = finishesForGame(game) as CardFinish[];
+
+  /*
+   * Switching games can strip the sticky finish out from under itself —
+   * pinning a Pokémon set while "etched" is selected would leave the select
+   * showing a value it no longer offers, and every add would then be
+   * rejected by the server with a message about a finish nobody can see.
+   * Falling back to nonfoil is both valid everywhere and the common case.
+   */
+  useEffect(() => {
+    if (!available.includes(finish)) setFinish("nonfoil");
+    // `available` is derived from `game`; depending on the array itself would
+    // re-run on every render because it is rebuilt each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, finish, setFinish]);
 
   async function create() {
     const result = await createLocationAction(newName, newKind);
@@ -290,9 +329,9 @@ function StickyControls({
             onChange={(e) => setFinish(e.target.value as CardFinish)}
             className={selectClass}
           >
-            {CARD_FINISHES.map((f) => (
+            {available.map((f) => (
               <option key={f} value={f}>
-                {f}
+                {CARD_FINISH_LABELS[f]}
               </option>
             ))}
           </select>
@@ -388,6 +427,7 @@ function StickyControls({
 function NumberMode({
   sets,
   onCommit,
+  onGame,
   busy,
   onError,
 }: {
@@ -396,6 +436,8 @@ function NumberMode({
     printing: { scryfallId: string; label: string },
     quantity: number,
   ) => Promise<boolean>;
+  /** Pinning a set is what tells the finish picker which game this is. */
+  onGame: (game: GameSlug) => void;
   busy: boolean;
   onError: (message: string | null) => void;
 }) {
@@ -500,6 +542,7 @@ function NumberMode({
         pinned={pinned}
         onPin={(s) => {
           setPinned(s);
+          onGame(s.game);
           setCandidates([]);
           setNote(null);
           onError(null);
@@ -592,6 +635,7 @@ function NumberMode({
               listRef={candidatesRef}
               activeIndex={activeIndex}
               imageId={candidates[activeIndex]?.scryfallId ?? null}
+              imageUrl={candidates[activeIndex]?.imageUrl ?? null}
             />
           ) : null}
         </div>
@@ -651,9 +695,10 @@ function SetPicker({
         <span className="text-xs text-muted">Set</span>
         <div className="flex flex-wrap items-center gap-2">
           {pinned ? (
-            <span className="rounded-lg border border-accent bg-surface px-3 py-2 text-sm">
-              <span className="font-mono uppercase">{pinned.code}</span>{" "}
-              {pinned.name}{" "}
+            <span className="inline-flex items-center gap-2 rounded-lg border border-accent bg-surface px-3 py-2 text-sm">
+              <span className="font-mono uppercase">{pinned.code}</span>
+              <span>{pinned.name}</span>
+              <GameBadge game={pinned.game} />
               <span className="text-muted">
                 · {pinned.printingCount.toLocaleString()} cards
               </span>
@@ -720,10 +765,14 @@ function SetPicker({
                 i === activeIndex ? "bg-surface-muted" : ""
               }`}
             >
-              <span className="w-12 shrink-0 font-mono text-xs uppercase text-muted">
+              {/* w-20, not w-12: a Magic code is at most six characters, but
+                  a prefixed one such as `pkm-swshp` is ten and was being
+                  clipped mid-word. */}
+              <span className="w-20 shrink-0 truncate font-mono text-xs uppercase text-muted">
                 {s.code}
               </span>
               <span className="min-w-0 flex-1 truncate">{s.name}</span>
+              <GameBadge game={s.game} />
               <span className="shrink-0 text-xs text-muted">
                 {s.releasedAt?.slice(0, 4) ?? "—"}
               </span>
@@ -739,6 +788,7 @@ function SetPicker({
 
 function NameMode({
   onCommit,
+  onGame,
   busy,
   onError,
 }: {
@@ -746,6 +796,8 @@ function NameMode({
     printing: { scryfallId: string; label: string },
     quantity: number,
   ) => Promise<boolean>;
+  /** Choosing a card is what tells the finish picker which game this is. */
+  onGame: (game: GameSlug) => void;
   busy: boolean;
   onError: (message: string | null) => void;
 }) {
@@ -832,6 +884,19 @@ function NameMode({
   const chooseCard = useCallback(
     async (result: CardSearchResult) => {
       onError(null);
+      /*
+       * Narrows the finish picker from the next render on.
+       *
+       * It does not retroactively fix the add below, which still commits
+       * with whatever finish is currently sticky — a state update is not
+       * visible inside the call that caused it. That case is the one the
+       * server was always going to catch: addCopies() rejects a finish the
+       * printing has no version of and says which finishes it does have.
+       * So the worst outcome of switching games mid-session with "etched"
+       * selected is one refused add and a correct explanation, after which
+       * the picker has reset itself to nonfoil.
+       */
+      onGame(result.game);
 
       // One printing means there is nothing to pick, so skip the step
       // entirely rather than making the user confirm the only option.
@@ -863,7 +928,7 @@ function NameMode({
         );
       }
     },
-    [onCommit, onError, reset],
+    [onCommit, onError, onGame, reset],
   );
 
   return (
@@ -993,6 +1058,14 @@ function NameMode({
                   {r.typeLine ?? ""}
                 </span>
               </span>
+              {/*
+                Which game this card is, before it is picked rather than
+                after. Choosing it narrows the Finish dropdown above — a
+                Pokémon card has no etched version — and an option quietly
+                disappearing from a control you already set is worth one
+                word of warning.
+              */}
+              <GameBadge game={r.game} />
               <span className="shrink-0 text-xs text-muted">
                 {r.printingCount}{" "}
                 {r.printingCount === 1 ? "printing" : "printings"}
@@ -1013,6 +1086,7 @@ function NameMode({
           listRef={printingsRef}
           activeIndex={printingIndex}
           imageId={printings[printingIndex]?.scryfallId ?? null}
+          imageUrl={printings[printingIndex]?.imageUrl ?? null}
         />
       ) : results.length > 0 ? (
         <ListRowPreview
@@ -1020,6 +1094,7 @@ function NameMode({
           listRef={resultsRef}
           activeIndex={activeIndex}
           imageId={results[activeIndex]?.newestPrintingId ?? null}
+          imageUrl={results[activeIndex]?.newestImageUrl ?? null}
         />
       ) : null}
     </div>

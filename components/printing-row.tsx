@@ -29,11 +29,14 @@ import {
  */
 export function PrintingRow({
   imageId,
+  imageUrl,
   className = "",
   children,
 }: {
-  /** Scryfall printing id — this printing's own art, not the card's. */
+  /** The printing id — this printing's own art, not the card's. */
   imageId: string;
+  /** The stored `printings.image_url`; derived from the id when absent. */
+  imageUrl?: string | null;
   className?: string;
   children?: React.ReactNode;
 }) {
@@ -86,7 +89,9 @@ export function PrintingRow({
       }}
     >
       {children}
-      {at ? <CardPreview imageId={imageId} at={at} /> : null}
+      {at ? (
+        <CardPreview imageId={imageId} imageUrl={imageUrl} at={at} />
+      ) : null}
     </li>
   );
 }

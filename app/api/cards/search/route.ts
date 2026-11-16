@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth/dal";
 import { ensureSimilarityThreshold, searchCards } from "@/lib/cards/search";
+import { parseGame } from "@/lib/games/constants";
 
 /**
  * Card name search for the type-ahead.
@@ -30,9 +31,20 @@ export async function GET(request: Request) {
     ? Math.min(Math.max(limitParam, 1), 50)
     : 20;
 
+  /*
+   * Optional, and null means every game rather than Magic.
+   *
+   * The header search box and the collection entry screen both want the
+   * whole catalog — somebody typing "Charizard" has already said which game
+   * they meant — while a caller that is about to do something Magic-only can
+   * narrow with `?game=mtg`. An unrecognised value falls back to searching
+   * everything, which is a worse-targeted answer rather than an error.
+   */
+  const game = parseGame(url.searchParams.get("game")) ?? undefined;
+
   try {
     await ensureSimilarityThreshold();
-    const results = await searchCards(query, limit);
+    const results = await searchCards(query, limit, game);
     return NextResponse.json(
       { results },
       // Card data changes only when a set releases, so a short private cache

@@ -29,13 +29,21 @@ import {
 export function CardLink({
   oracleId,
   imageId,
+  imageUrl,
   name,
   children,
   className = "",
 }: {
   oracleId: string;
-  /** Scryfall printing id for the image. Null when none is known. */
+  /** The printing id for the image. Null when none is known. */
   imageId: string | null;
+  /**
+   * The stored `printings.image_url`.
+   *
+   * Required wherever a non-Magic card can appear, because only Scryfall's
+   * URLs can be derived from the id; the Magic-only callers leave it out.
+   */
+  imageUrl?: string | null;
   name: string;
   children?: React.ReactNode;
   className?: string;
@@ -63,7 +71,9 @@ export function CardLink({
         {children ?? name}
       </Link>
 
-      {at && imageId ? <CardPreview imageId={imageId} at={at} /> : null}
+      {at && imageId ? (
+        <CardPreview imageId={imageId} imageUrl={imageUrl} at={at} />
+      ) : null}
     </>
   );
 }

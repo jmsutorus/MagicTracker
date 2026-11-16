@@ -1,14 +1,20 @@
 # MagicTracker
 
-Personal Magic: The Gathering collection tracker — collection entry, set
+Personal trading-card collection tracker — collection entry, set
 completion, sealed product adds, Commander decks, cubes, pasted-list import,
 a wishlist, weekly value tracking, and shareable decklists. Built to run on
 free tiers indefinitely, with no subscription.
 
+Magic: The Gathering is the game it is built around and the only one with
+decks, set completion and sealed products. **Pokémon and One Piece are
+tracked too**, for the collection, search and the wishlist — see
+[Other games](#other-games).
+
 See [PLAN.md](./PLAN.md) for the architecture, data model, and phase plan,
 including why the stack is what it is.
 
-**Current state: all eight phases complete, plus cubes.** Card search,
+**Current state: all eight phases complete, plus cubes and three games.**
+Card search,
 collection entry with locations, per-set completion, precon adds, Commander
 decks with a legality engine and buy list, cubes with a size target and a
 colour/curve/type breakdown, paste import, one-click buy lists for TCGplayer
@@ -26,6 +32,9 @@ deck share links.
 - **Auth.js v5** — Google sign-in, single-email allowlist, JWT sessions
 - Card data from [Scryfall](https://scryfall.com/docs/api) bulk files;
   sealed product and precon contents from [MTGJSON](https://mtgjson.com)
+- Pokémon cards from
+  [pokemon-tcg-data](https://github.com/PokemonTCG/pokemon-tcg-data);
+  One Piece from [optcgapi.com](https://optcgapi.com)
 
 ## Setup
 
@@ -122,18 +131,21 @@ which pushes to `main` build automatically.
 ### Card data ingest
 
 The weekly refresh is a **Cloud Run Job** started by **Cloud Scheduler** —
-not a GitHub Action, and not a route in the app. It runs four steps in
+not a GitHub Action, and not a route in the app. It runs six steps in
 sequence, as separate child processes (`scripts/ingest.ts`):
 
 1. `ingest-cards.ts` — Scryfall bulk cards. ~90 seconds, peaks ~240 MB heap.
 2. `ingest-products.ts` — the MTGJSON sealed-product catalog. ~3 seconds.
-3. `ingest-prices.ts` — prices for the printings you own, and the week's total.
-4. `export-backup.ts` — the backup of what cannot be regenerated.
+3. `ingest-pokemon.ts` — the Pokémon card catalog. ~1 request per set.
+4. `ingest-onepiece.ts` — the One Piece card catalog, prices included.
+5. `ingest-prices.ts` — prices for the printings you own, and the week's total.
+6. `export-backup.ts` — the backup of what cannot be regenerated.
 
 None depends on another, so a failure in one does not skip the rest and the
 exit code is non-zero if any failed. The order still matters: prices run
-after the cards so a card entered this week is priced in the same run that
-ingested its printing, and the backup runs last so its file includes
+after all four catalogs, so a card entered this week is priced in the same
+run that ingested its printing and One Piece's snapshot copies a price its
+own ingest just refreshed; and the backup runs last so its file includes
 everything the others changed.
 
 | | |
@@ -228,10 +240,12 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Drizzle Studio (browse the database) |
 | `npm run db:check` | Connectivity + migration + extension check |
-| `npm run ingest` | All three ingests, in order — what the scheduled job runs |
+| `npm run ingest` | All six steps, in order — what the scheduled job runs |
 | `npm run ingest:cards` | Load Scryfall bulk data into the card tables. `-- --force` re-ingests an unchanged file |
 | `npm run ingest:products` | Load the MTGJSON sealed-product catalog. `-- --force` re-ingests an unchanged version |
 | `npm run ingest:prices` | Price the printings you own and record the week's total |
+| `npm run ingest:pokemon` | Load the Pokémon card catalog. `-- --set <id>` does one set |
+| `npm run ingest:onepiece` | Load the One Piece card catalog, prices included |
 | `npm run backup` | Write the export to `BACKUP_BUCKET`, or to `./backups/` when it is unset |
 | `scripts/search-smoke.ts` | Eyeball search ranking against the real database (`npx tsx`) |
 | `npm run collection:smoke` | End-to-end check of the collection layer against the real database |
@@ -249,8 +263,9 @@ If the backend URL ever changes, update the OAuth client *and* `AUTH_URL` in
 ## The collection
 
 Two tables, and they are the only data here that cannot be regenerated: the
-card database rebuilds from Scryfall in 35 seconds, but the record of which
-cards are in which binder exists nowhere else.
+card database rebuilds from its sources in about a minute, but the record of
+which cards are in which binder exists nowhere else. They hold every game's
+cards — a `printing_id` names a Pokémon card as readily as a Magic one.
 
 ```
 locations        (id, name, kind, sort_order)
@@ -308,6 +323,71 @@ space is better than silently entering a hundred wrong cards.
 Server actions do the writing, and every one of them calls `requireUser()`
 first: an action is a public HTTP endpoint with a generated name, not a
 private function call, and `proxy.ts` never sees its POST body.
+
+## Other games
+
+Pokémon and One Piece cards live in the same `printings` and `oracle_cards`
+tables as Magic, distinguished by a `game` column that defaults to `'mtg'`.
+A tab strip appears above the collection once you own cards from more than
+one game, search spans all three, and the wishlist takes any of them.
+
+| | Magic | Pokémon | One Piece |
+|---|---|---|---|
+| Collection, search, card pages | yes | yes | yes |
+| Wishlist | yes | yes (no buy links) | yes (TCGplayer only) |
+| Prices and value | yes | **no** | yes |
+| Decks, set completion, sealed products | yes | no | no |
+| Printings | 110,963 | 20,776 | 4,269 |
+| Sets | 1,006 | 177 | 58 |
+
+**Pokémon has no prices**, because no free bulk source publishes them.
+Those cards are counted as unpriced on the value page rather than as worth
+zero, which is why that page reports a copies-with-no-price figure.
+
+**Decks, set completion and sealed products stay Magic-only** — those are
+the parts built around one game's rules, and there was nothing to track for
+the other two. The queries behind them are scoped with `game = 'mtg'` rather
+than left open, so a pasted decklist line reading `2 Lightning` can never
+resolve to a Pokémon card.
+
+### The id problem, and why `printings.scryfall_id` still has that name
+
+A Magic printing is keyed on Scryfall's UUID. The other two catalogs use
+strings — `sv8-1`, `OP11-004_p1` — and widening the column to text would
+have meant dropping and recreating six foreign keys and rewriting every
+`::uuid` cast in the app, with the collection pointing at it the whole time.
+
+Instead each non-Magic card gets a **UUIDv5 derived from its native id**
+(`lib/games/ids.ts`), under a fixed namespace that must never change: the
+same card always derives the same UUID, so an ingest is an upsert rather
+than a duplicator. The native id is kept alongside in `external_id`, and the
+column keeps its old name because renaming it would touch every query for no
+behaviour change.
+
+Set codes are prefixed instead of derived — `pkm-sv8`, `opc-op11` — which
+keeps `sets.code` a single primary key. That is safe because every one of
+Magic's 1,068 set codes is lowercase alphanumeric and at most six
+characters, so a hyphen cannot collide.
+
+### Images
+
+`printings.image_url` and `art_url` are now the source for every game's
+artwork. Scryfall's URLs are derivable from the card id, so nothing was
+stored before; no other catalog works that way. Migration 0016 backfilled
+all 110,963 Magic rows, and the Scryfall ingest writes them from now on.
+Images are hotlinked from each source's CDN and never re-hosted, which all
+three sources' terms require.
+
+### Finishes
+
+Each game is offered only the finishes it has: Magic nonfoil/foil/etched,
+Pokémon nonfoil/reverse/foil, One Piece nonfoil/foil. `reverse` was added to
+the shared finish list for Pokémon's reverse holos, and set completion was
+deliberately **not** widened to include it.
+
+Pokémon finishes are guessed from rarity: an ordinary common, uncommon or
+rare gets all three; anything else is foil-only; and a set released before
+Legendary Collection (May 2002) predates reverse holos entirely.
 
 ## Set completion
 
@@ -571,6 +651,12 @@ nothing but intention, so it is the only one that needs a table.
 | Already owned | Each row counts the copies you own that satisfy it, and those are left **off** the buy list. Buying a card you just bought is the mistake the page exists to prevent |
 | Clearing | One action removes the wishes the collection already covers, asked rather than done automatically — a playset is four, and owning one does not end the wish |
 
+Pokémon and One Piece cards can be wished for, but the one-click buy list
+covers **Magic only** and the page says so when a non-Magic row is on the
+list. That list is a TCGplayer mass-entry payload built from set codes and
+collector numbers in Magic's vocabulary, and feeding it another game's codes
+would produce a cart of wrong cards rather than an error.
+
 ## Price history
 
 `price_snapshots` has a weekly row per owned (printing, finish), and a card's
@@ -696,9 +782,9 @@ fails outright, and a pasted list repeats cards all the time.
 `/value` answers "what is this worth" with a date attached, because the prices
 come from a weekly job and a number with no date would imply it was live.
 
-**What the number is.** The market price of a **near-mint** copy, from
-Scryfall, per printing and finish, times what you own. Condition is not
-discounted: the tracker knows what condition you entered, but a multiplier for
+**What the number is.** The market price of a **near-mint** copy, per
+printing and finish, times what you own — from Scryfall for Magic and from
+its own catalog for One Piece. Condition is not discounted: the tracker knows what condition you entered, but a multiplier for
 it would be invented data. Etched reads `usd_etched` only — it does not fall
 back to the foil price, because they are different cards on the market.
 
@@ -713,17 +799,24 @@ The chart reads `value_snapshots` directly and says so on the card. The job is
 idempotent per day: a second run the same day updates that day's rows, so a
 retry after a half-finished run is safe.
 
-**Only what you own is priced.** 110k printings × a weekly snapshot would
+**Only what you own is priced.** 136k printings × a weekly snapshot would
 exhaust the 1 GB plan within months. `POST /cards/collection` takes 75 ids a
 request, so a few hundred owned printings cost a couple of calls.
+
+Only Magic ids go to Scryfall. The other games' printing ids are UUIDs this
+app derived, so asking Scryfall about them would be a weekly request full of
+identifiers that cannot exist. One Piece is snapshotted from the price its
+own catalog publishes, which the ingest has already written into the row —
+a copy inside the database, with no network call in the middle.
 
 **Cents, never floats.** `parseFloat("0.29") * 100` is `28.999999999999996`,
 and that error survives being summed. Prices are parsed from the string
 straight to integer cents, summed by Postgres in `integer`, and formatted only
 for display.
 
-**A missing price is not zero.** A printing Scryfall has no price for is
-counted as unpriced and the page prints how many copies that covers, so the
+**A missing price is not zero.** A printing nothing has a price for — which
+is every Pokémon card, since no free bulk source publishes prices — is
+counted as unpriced, and the page prints how many copies that covers, so the
 total is understood as "what we could price" rather than silently wrong.
 Spent-against-market likewise only covers copies that have *both* a recorded
 purchase price and a current one.
@@ -740,19 +833,21 @@ nickel moves a collection more than one card up a dollar.
 **Download a copy** on the dashboard (`GET /api/export`) gives you one JSON
 file: locations, every collection row, every deck and its cards, your
 wishlist, and your per-set completion rules. Every row carries the card's
-name, set code and collector number beside the ids, so the file is still
-useful if the ids ever stop matching — or to any tool that has never heard of
-this app.
+game, name, set code, collector number and its own catalog's id beside the
+ids, so the file is still useful if the ids ever stop matching — or to any
+tool that has never heard of this app.
 
-The card tables are **not** in it. They rebuild from Scryfall in about 35
-seconds, and including 110k printings would turn a file you can read into one
-you cannot.
+The card tables are **not** in it. They rebuild from their sources in about
+a minute, and including 136k printings would turn a file you can read into
+one you cannot.
 
-`formatVersion` is **3** since the wishlist, which added a whole top-level
-`wishlist` array. (2 was cubes: `decks[].targetSize`, without which a cube
-came back missing the size it was built to.) Nothing has ever been renamed or
-removed, so a reader that only knows an earlier version still reads
-everything it knew.
+`formatVersion` is **4** since multi-game, which added `game` and
+`externalId` to every collection row — without them a Pokémon card in a
+backup is a name and a UUID that means nothing outside the database that
+wrote it. (3 was the wishlist: a whole top-level `wishlist` array. 2 was
+cubes: `decks[].targetSize`, without which a cube came back missing the size
+it was built to.) Nothing has ever been renamed or removed, so a reader that
+only knows an earlier version still reads everything it knew.
 
 The same export runs as the last step of the weekly job
 (`scripts/export-backup.ts`) and is gzipped to a bucket:
@@ -830,3 +925,14 @@ has to as well — see PLAN.md §4:
   Scryfall returns **403** without them.
 - Hotlink card images from Scryfall's CDN; never re-host them.
 - Cache for at least 24 h, and don't redistribute the dataset.
+
+The other two sources are smaller and have no bulk file, so their clients
+(`lib/pokemon/client.ts`, `lib/onepiece/client.ts`) follow the same rules in
+spirit: one request per set rather than per card, a courtesy delay between
+them (80 ms and 250 ms), a descriptive `User-Agent`, and images hotlinked
+rather than re-hosted.
+
+**The `User-Agent` carries no email address, account name or other personal
+detail**, in any of the three. It names the app and nothing else — these are
+requests to a public dataset, and identifying who is holding the collection
+is not part of the exchange.

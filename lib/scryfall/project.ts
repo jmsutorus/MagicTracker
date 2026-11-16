@@ -6,9 +6,11 @@
  * aren't numbers — can be unit tested without a database or a 500 MB download.
  */
 
-// Pure helpers and a type: nothing here pulls in the HTTP client at runtime.
+// Pure helpers and a type. `cardImageUrl` is a string builder, not a request,
+// and lib/scryfall/client.ts does nothing at import time — so this stays
+// testable without a network despite naming the client module.
 import { priceForFinish } from "@/lib/prices/project";
-import type { ScryfallPrices } from "@/lib/scryfall/client";
+import { cardImageUrl, type ScryfallPrices } from "@/lib/scryfall/client";
 
 export type ScryfallCardFace = {
   oracle_id?: string;
@@ -85,6 +87,18 @@ export type PrintingRow = {
   usdCents: number | null;
   usdFoilCents: number | null;
   usdEtchedCents: number | null;
+  /**
+   * Where the picture is, hotlinked from Scryfall's CDN.
+   *
+   * Derivable from `scryfallId` and stored anyway, because since multi-game
+   * support `printings.image_url` is what every list and card page reads —
+   * no other catalog's URLs are a function of the card's id, so the column
+   * has to be the single source. Writing it here is what keeps a Magic card
+   * ingested next week indistinguishable from the 110k backfilled by
+   * migration 0016.
+   */
+  imageUrl: string;
+  artUrl: string;
 };
 
 export type OracleRow = {
@@ -282,6 +296,8 @@ export function projectCard(card: ScryfallCard): ProjectedCard | null {
     usdCents: priceForFinish(card.prices, "nonfoil"),
     usdFoilCents: priceForFinish(card.prices, "foil"),
     usdEtchedCents: priceForFinish(card.prices, "etched"),
+    imageUrl: cardImageUrl(card.id, "normal"),
+    artUrl: cardImageUrl(card.id, "art_crop"),
   };
 
   const oracle: OracleRow = {

@@ -17,17 +17,26 @@
  * to optimise and a fill-parent Image would only add a wrapper.
  */
 
-/** Scryfall's URL shape, matching cardImageUrl() in lib/scryfall/client.ts. */
-function artUrl(printingId: string): string {
+/**
+ * Scryfall's URL shape, matching cardImageUrl() in lib/scryfall/client.ts.
+ *
+ * Only a fallback now. `printings.art_url` is the source of truth, because
+ * no other game's catalog has URLs derivable from the card's id — and the
+ * Magic rows were backfilled with exactly this string, so the two agree.
+ * Callers that can reach a non-Magic card must pass `src`; the ones that
+ * cannot (deck pages, the cube report) still work without it.
+ */
+function scryfallArtUrl(printingId: string): string {
   return `https://cards.scryfall.io/art_crop/front/${printingId[0]}/${printingId[1]}/${printingId}.jpg`;
 }
 
 export function CardArt({
   printingId,
+  src,
   className = "h-8 w-11",
 }: {
   /**
-   * The printing's Scryfall id — a specific printing, so a specific art.
+   * The printing's id — a specific printing, so a specific art.
    *
    * Null is a real case rather than an error: a cube has no commander, and
    * a commander deck has none until one is chosen. It renders the empty
@@ -35,10 +44,20 @@ export function CardArt({
    * start further left than its neighbours'.
    */
   printingId: string | null;
+  /**
+   * The stored `art_url`, or `image_url` where a catalog publishes no crop.
+   *
+   * Pokémon and One Piece publish whole cards only, so at this size their
+   * rows show a small card rather than the illustration. Less legible than
+   * Magic's crops, and still the picture that exists.
+   */
+  src?: string | null;
   /** Size and shape; the default suits a table row. */
   className?: string;
 }) {
-  if (!printingId) {
+  const url = src ?? (printingId ? scryfallArtUrl(printingId) : null);
+
+  if (!url) {
     return (
       <span
         aria-hidden
@@ -60,7 +79,7 @@ export function CardArt({
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={artUrl(printingId)}
+        src={url}
         alt=""
         loading="lazy"
         decoding="async"
@@ -97,7 +116,7 @@ export function CardArtBanner({
     <div className="relative isolate overflow-hidden rounded-xl border border-border">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={artUrl(printingId)}
+        src={scryfallArtUrl(printingId)}
         alt=""
         aria-hidden
         decoding="async"

@@ -5,15 +5,20 @@ import { useEffect, useRef, useState, useTransition } from "react";
 
 import { addWishAction } from "@/app/wishlist/actions";
 import { ListRowPreview } from "@/components/card-preview";
+import { GameBadge } from "@/components/game-badge";
+import type { GameSlug } from "@/lib/games/constants";
 
 type Candidate = {
   oracleId: string;
   name: string;
+  game: GameSlug;
   typeLine: string | null;
   manaCost: string | null;
   newestSetCode: string;
   /** The printing to show in the preview beside the list. */
   newestPrintingId: string;
+  /** That printing's stored image, for the games Scryfall does not serve. */
+  newestImageUrl: string | null;
 };
 
 /**
@@ -138,6 +143,7 @@ export function WishlistAdd() {
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate">{card.name}</span>
+                <GameBadge game={card.game} />
                 <span className="shrink-0 font-mono text-xs uppercase text-muted">
                   {card.newestSetCode}
                 </span>
@@ -152,6 +158,7 @@ export function WishlistAdd() {
           listRef={listRef}
           activeIndex={activeIndex}
           imageId={results[activeIndex]?.newestPrintingId ?? null}
+          imageUrl={results[activeIndex]?.newestImageUrl ?? null}
         />
       ) : null}
 

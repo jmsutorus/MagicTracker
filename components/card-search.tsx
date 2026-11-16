@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { CardArt } from "@/components/card-art";
+import { GameBadge } from "@/components/game-badge";
 import { ListRowPreview } from "@/components/card-preview";
 import { ManaCost } from "@/components/mana-cost";
 import type { CardSearchResult } from "@/lib/cards/search";
@@ -173,13 +174,17 @@ export function CardSearch() {
                 index === activeIndex ? "bg-surface-muted" : ""
               }`}
             >
-              <CardArt printingId={result.newestPrintingId} />
+              <CardArt
+                printingId={result.newestPrintingId}
+                src={result.newestArtUrl}
+              />
               <span className="min-w-0 flex-1">
                 <span className="block truncate">{result.name}</span>
                 <span className="block truncate text-xs text-muted">
                   {result.typeLine ?? ""}
                 </span>
               </span>
+              <GameBadge game={result.game} />
               <ManaCost cost={result.manaCost} size={13} className="shrink-0" />
               <span className="shrink-0 text-xs text-muted">
                 {result.printingCount}{" "}
@@ -195,6 +200,7 @@ export function CardSearch() {
           listRef={listRef}
           activeIndex={activeIndex}
           imageId={results[activeIndex]?.newestPrintingId ?? null}
+          imageUrl={results[activeIndex]?.newestImageUrl ?? null}
         />
       ) : null}
 

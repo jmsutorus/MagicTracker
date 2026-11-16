@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
+import { CardGameFacts } from "@/components/card-game-facts";
 import { CardPurchaseLinks } from "@/components/card-purchase-links";
 import { ColorIdentity, ManaCost } from "@/components/mana-cost";
 import { PriceHistory } from "@/components/price-history";
@@ -16,6 +17,7 @@ import {
   listOwnedCopiesForOracle,
   type OwnedCopies,
 } from "@/lib/collection/queries";
+import type { GameSlug } from "@/lib/games/constants";
 import { getOwnedPriceHistory } from "@/lib/prices/queries";
 import { cardImageUrl } from "@/lib/scryfall/client";
 
@@ -32,21 +34,63 @@ const FINISH_LABEL: Record<string, string> = {
   nonfoil: "nonfoil",
   foil: "foil",
   etched: "etched",
+  reverse: "reverse holo",
 };
 
-/** Flags that explain why a printing exists — and whether it counts toward a set. */
-function printingTags(p: {
-  isBooster: boolean;
-  isPromo: boolean;
-  isVariation: boolean;
-  fullArt: boolean;
-}): string[] {
+/**
+ * Flags that explain why a printing exists — and whether it counts toward a
+ * set.
+ *
+ * Every one of these is Magic's vocabulary, read from Scryfall's own flags.
+ * The other catalogs publish none of them, so their rows arrive with all four
+ * false — which, left alone, printed "non-booster" against every Pokémon and
+ * One Piece card in the list. That tag is a real statement about a Magic
+ * printing (it cannot be opened in a pack, so it does not count toward the
+ * set) and a meaningless one everywhere else, so the whole set of tags is
+ * Magic-only rather than filtered one at a time.
+ */
+function printingTags(
+  p: {
+    isBooster: boolean;
+    isPromo: boolean;
+    isVariation: boolean;
+    fullArt: boolean;
+  },
+  game: GameSlug,
+): string[] {
+  if (game !== "mtg") return [];
+
   const tags: string[] = [];
   if (p.isPromo) tags.push("promo");
   if (p.isVariation) tags.push("variant");
   if (p.fullArt) tags.push("full art");
   if (!p.isBooster && !p.isPromo) tags.push("non-booster");
   return tags;
+}
+
+/**
+ * The part of a printing's name that the card's name does not account for:
+ * "(Alternate Art)", "(Wanted Poster)", "(SP)".
+ *
+ * Null when there is nothing to add, and null when what is left is only the
+ * collector number repeated — One Piece names some printings
+ * "Monkey.D.Luffy (OP15-051)", which would print the number twice on one row,
+ * two columns apart.
+ */
+function variantNote(
+  printingName: string,
+  cardName: string,
+  collectorNumber: string,
+): string | null {
+  if (printingName === cardName) return null;
+
+  const note = printingName.replace(cardName, "").trim();
+  if (note.length === 0) return null;
+
+  const squash = (v: string) => v.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  if (squash(note) === squash(collectorNumber)) return null;
+
+  return note;
 }
 
 export default async function CardDetailPage({
@@ -109,10 +153,14 @@ export default async function CardDetailPage({
         <div className="mt-5 flex flex-col gap-6 sm:flex-row">
           {primary ? (
             <div className="shrink-0">
-              {/* Hotlinked from Scryfall's CDN, never re-hosted — their terms
-                  require it, and the URL is derived from the card id. */}
+              {/* Hotlinked, never re-hosted — Scryfall's terms require it
+                  and the other catalogs are served the same way. The URL is
+                  the stored `printings.image_url`, because only Scryfall's
+                  can be derived from the card's id. */}
               <Image
-                src={cardImageUrl(primary.scryfallId, "normal")}
+                src={
+                  primary.imageUrl ?? cardImageUrl(primary.scryfallId, "normal")
+                }
                 alt={card.name}
                 width={244}
                 height={340}
@@ -138,6 +186,18 @@ export default async function CardDetailPage({
               </p>
             ) : null}
 
+            {/*
+              Magic's facts, for Magic's cards only.
+
+              Colour identity, Commander legality, mana value, EDHREC rank
+              and the reserved list are not merely unavailable for a Pokémon
+              card — they are meaningless for one. Rendering the block with
+              every value empty would be worse than omitting it: it would
+              suggest the data was missing rather than inapplicable. The
+              other games get their own block below, built from whatever
+              their catalog actually publishes.
+            */}
+            {card.game === "mtg" ? (
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
               <div>
                 <dt className="text-xs uppercase tracking-wide text-muted">
@@ -190,6 +250,9 @@ export default async function CardDetailPage({
                 </div>
               ) : null}
             </dl>
+            ) : (
+              <CardGameFacts game={card.game} gameData={card.gameData} />
+            )}
 
             <div className="mt-5">
               <WishButton oracleId={card.oracleId} />
@@ -235,12 +298,13 @@ export default async function CardDetailPage({
 
           <ul className="mt-4 overflow-hidden rounded-lg border border-border bg-surface">
             {card.printings.map((p) => {
-              const tags = printingTags(p);
+              const tags = printingTags(p, card.game);
               const groups = ownedByPrinting.get(p.scryfallId);
               return (
                 <PrintingRow
                   key={p.scryfallId}
                   imageId={p.scryfallId}
+                  imageUrl={p.imageUrl}
                   /*
                     Owned printings are tinted, so which versions are already
                     yours is answerable by scanning the list rather than by
@@ -250,14 +314,35 @@ export default async function CardDetailPage({
                     groups ? "bg-surface-muted" : ""
                   }`}
                 >
-                  <span className="w-16 shrink-0 font-mono text-xs text-muted">
+                  {/*
+                    w-24: prefixed codes outgrew 16, and One Piece's longest
+                    (`OPC-OP15EB04`) then outgrew 20 and truncated.
+                  */}
+                  <span className="w-24 shrink-0 truncate font-mono text-xs text-muted">
                     {p.setCode.toUpperCase()}
                   </span>
-                  <span className="w-14 shrink-0 font-mono text-xs text-muted">
+                  {/*
+                    whitespace-nowrap, and wider than it needs to be for
+                    Magic: One Piece numbers the card within the whole game
+                    rather than within the set, so they read `OP05-060` and
+                    wrapped onto two lines in a 14-wide column.
+                  */}
+                  <span className="w-24 shrink-0 whitespace-nowrap font-mono text-xs text-muted">
                     #{p.collectorNumber}
                   </span>
                   <span className="min-w-24 flex-1 truncate text-sm">
                     {p.setName}
+                    {/*
+                      What this printing adds to the card's name. Magic adds
+                      nothing, ever. One Piece prints alternate arts under the
+                      base card's number — two rows that were otherwise
+                      identical on screen, told apart only by the art on hover.
+                    */}
+                    {variantNote(p.name, card.name, p.collectorNumber) ? (
+                      <span className="ml-2 text-xs text-muted">
+                        {variantNote(p.name, card.name, p.collectorNumber)}
+                      </span>
+                    ) : null}
                     {tags.length > 0 ? (
                       <span className="ml-2 text-xs text-muted">
                         {tags.join(" · ")}
@@ -288,6 +373,7 @@ export default async function CardDetailPage({
                       tcgplayerId={p.tcgplayerId}
                       setCode={p.setCode}
                       collectorNumber={p.collectorNumber}
+                      game={card.game}
                     />
                     <span className="text-border">·</span>
                     {/* This exact printing, as opposed to the any-printing

@@ -108,6 +108,8 @@ const PRINTING_COLUMNS = [
   "usd_cents",
   "usd_foil_cents",
   "usd_etched_cents",
+  "image_url",
+  "art_url",
 ] as const;
 
 function printingToCsv(p: PrintingRow): string {
@@ -137,6 +139,8 @@ function printingToCsv(p: PrintingRow): string {
       csvNumber(p.usdCents),
       csvNumber(p.usdFoilCents),
       csvNumber(p.usdEtchedCents),
+      csvText(p.imageUrl),
+      csvText(p.artUrl),
     ].join(",") + "\n"
   );
 }
@@ -263,9 +267,22 @@ async function main(): Promise<void> {
     // 3. Sets — one small call, rather than deriving them from the card file.
     log("loading sets...");
     const sets = await getAllSets();
+    /*
+     * INCLUDING DEFAULTS, and dropped rather than reused.
+     *
+     * A bare `LIKE` copies column types and NOT NULL but *not* defaults, so
+     * the moment a NOT NULL DEFAULT column arrives that the COPY does not
+     * name — `game`, as of multi-game support — every row fails on a null.
+     * Carrying the defaults across means the staging table accepts exactly
+     * what the real table would.
+     *
+     * Dropping first rather than `IF NOT EXISTS` for the related reason: a
+     * staging table left behind by a failed run was created against the
+     * previous schema, and reusing it silently reintroduces the same bug.
+     */
     await client.query(`
-      CREATE UNLOGGED TABLE IF NOT EXISTS _staging_sets (LIKE sets);
-      TRUNCATE _staging_sets;
+      DROP TABLE IF EXISTS _staging_sets;
+      CREATE UNLOGGED TABLE _staging_sets (LIKE sets INCLUDING DEFAULTS);
     `);
 
     const setStream = client.query(
@@ -307,9 +324,9 @@ async function main(): Promise<void> {
      */
     await client.query(`
       DROP TABLE IF EXISTS _staging_printings;
-      CREATE UNLOGGED TABLE _staging_printings (LIKE printings);
+      CREATE UNLOGGED TABLE _staging_printings (LIKE printings INCLUDING DEFAULTS);
       DROP TABLE IF EXISTS _staging_oracle;
-      CREATE UNLOGGED TABLE _staging_oracle (LIKE oracle_cards);
+      CREATE UNLOGGED TABLE _staging_oracle (LIKE oracle_cards INCLUDING DEFAULTS);
     `);
 
     const webStream = await openBulkStream(bulkDownloadUri(bulk));
@@ -519,7 +536,9 @@ async function main(): Promise<void> {
         image_status = EXCLUDED.image_status,
         usd_cents = EXCLUDED.usd_cents,
         usd_foil_cents = EXCLUDED.usd_foil_cents,
-        usd_etched_cents = EXCLUDED.usd_etched_cents
+        usd_etched_cents = EXCLUDED.usd_etched_cents,
+        image_url = EXCLUDED.image_url,
+        art_url = EXCLUDED.art_url
     `);
 
     await client.query("COMMIT");

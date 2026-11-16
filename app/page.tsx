@@ -5,7 +5,11 @@ import { AppHeader } from "@/components/app-header";
 import { CardArt, SetSymbol } from "@/components/card-art";
 import { ProgressBar } from "@/components/progress-bar";
 import { requireUser } from "@/lib/auth/dal";
-import { getCollectionTotals } from "@/lib/collection/queries";
+import {
+  getCollectionTotals,
+  listCollectedGames,
+} from "@/lib/collection/queries";
+import { GAME_INFO } from "@/lib/games/constants";
 import { listSetProgress } from "@/lib/completion/queries";
 import { listDecks } from "@/lib/decks/queries";
 import { formatCents, formatCentsDelta } from "@/lib/prices/constants";
@@ -105,13 +109,16 @@ export default async function DashboardPage() {
    * sequence made the first load of the front door the slowest page in the
    * app.
    */
-  const [totals, value, decks, sets, wishlist] = await Promise.all([
-    getCollectionTotals(),
-    getValueTotals(),
-    listDecks(),
-    listSetProgress(),
-    listWishlist(),
-  ]);
+  const [totals, gameCounts, value, decks, sets, wishlist] = await Promise.all(
+    [
+      getCollectionTotals(),
+      listCollectedGames(),
+      getValueTotals(),
+      listDecks(),
+      listSetProgress(),
+      listWishlist(),
+    ],
+  );
 
   const valueDelta =
     value.previousCents === null
@@ -191,6 +198,29 @@ export default async function DashboardPage() {
                   </>
                 )}
               </p>
+
+              {/*
+                The split by game, and only once there is one.
+
+                The headline above counts every card in every game, which is
+                the right total — but a collector who has just started a
+                second game wants to know how far in they are, and the number
+                alone cannot say. Each is a link, because the question
+                "how many Pokémon?" is usually followed by "show me".
+              */}
+              {gameCounts.length > 1 ? (
+                <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted">
+                  {gameCounts.map(({ game, copies }) => (
+                    <Link
+                      key={game}
+                      href={`/collection?game=${game}`}
+                      className="underline underline-offset-4 hover:text-foreground"
+                    >
+                      {NUMBER.format(copies)} {GAME_INFO[game].shortName}
+                    </Link>
+                  ))}
+                </p>
+              ) : null}
             </div>
 
             {/*
