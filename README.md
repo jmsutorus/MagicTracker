@@ -123,10 +123,14 @@ silently breaks a connection string.
 
 ### Push-to-deploy
 
-Not connected. The backend was created non-interactively, so it has no GitHub
-link; deploys are from local source. Connecting the repo requires authorizing
-the Firebase GitHub App in the console (App Hosting → backend → settings), after
-which pushes to `main` build automatically.
+**Connected.** A push to `main` builds and rolls out on its own — confirmed
+2026-11-16, when a push produced `rollout-2026-11-16-001` with no deploy
+command run at all. Roughly two minutes from push to live.
+
+`firebase deploy --only apphosting` still works and deploys *local* source
+instead, which is the one to use for something uncommitted. It asks for
+confirmation first, because on a linked backend that is usually not what you
+meant; `--non-interactive` makes it refuse rather than assume.
 
 ### Card data ingest
 

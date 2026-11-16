@@ -773,10 +773,8 @@ of a new game.
 
 None. All eight phases are built, deployed and verified, with cubes, Standard decks and a
 ninth phase for Pokémon and One Piece on top of them;
-what is left is in §10 by choice, not by blockage. The one outstanding manual step is optional: connecting the
-GitHub repo to Firebase App Hosting for push-to-deploy, which needs a browser to
-authorize the Firebase GitHub App. Until then, deploying is
-`firebase deploy --only apphosting`.
+what is left is in §10 by choice, not by blockage. Push-to-deploy is connected, so a push to
+`main` builds and rolls out by itself.
 
 ## 10. Deferred
 
