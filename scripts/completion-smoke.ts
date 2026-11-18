@@ -61,8 +61,19 @@ async function main() {
   check("Bloomburrow defaults to the booster-obtainable cards", () => {
     assert.equal(blb.scope.boosterOnly, true);
     assert.equal(blb.applicable.boosterOnly, true);
-    assert.equal(blb.target, 281);
+    // 281 on the play-booster sheet, plus the 97 Collector Booster
+    // treatments of those cards. The 13 starter-kit cards (379-397 less the
+    // treatments) and the promos stay out.
+    assert.equal(blb.target, 378);
     assert.equal(blb.setSize, 397);
+  });
+
+  const dft = await queries.getSetCompletion("dft");
+  assert.ok(dft, "dft missing — run the ingest");
+  check("Collector Booster treatments count as booster-obtainable", () => {
+    // Aetherdrift: 291 on the play-booster sheet plus 252 borderless,
+    // showcase and extended-art treatments. Only the 10 promos are out.
+    assert.equal(dft.target, 543);
   });
 
   const blc = await queries.getSetCompletion("blc");
@@ -191,7 +202,7 @@ async function main() {
   const blbReset = await queries.getSetCompletion("blb");
   assert.ok(blbReset);
   check("resetting returns to the default by deleting the row", () => {
-    assert.equal(blbReset.target, 281);
+    assert.equal(blbReset.target, 378);
     assert.equal(scope.isDefaultScope(blbReset.scope), true);
   });
 
@@ -204,7 +215,7 @@ async function main() {
 
   const missingBefore = await queries.listMissingPrintings("blb");
   check("every in-scope card starts out missing", () =>
-    assert.equal(missingBefore.length, 281),
+    assert.equal(missingBefore.length, 378),
   );
   check("the missing list is in collector-number order", () => {
     const nums = missingBefore
@@ -228,7 +239,7 @@ async function main() {
   assert.ok(afterOwn);
   check("owning one card moves the numerator by exactly one", () => {
     assert.equal(afterOwn.owned, blbReset.owned + 1);
-    assert.equal(afterOwn.target, 281);
+    assert.equal(afterOwn.target, 378);
   });
 
   const missingAfter = await queries.listMissingPrintings("blb");
@@ -298,7 +309,7 @@ async function main() {
   check("the set we own a card from appears in the index", () => {
     const row = progress.find((p) => p.code === "blb");
     assert.ok(row, "blb not listed");
-    assert.equal(row.target, 281);
+    assert.equal(row.target, 378);
     assert.equal(row.owned, 1);
   });
   // Not async: check() takes a sync function, and an async body would have

@@ -400,10 +400,15 @@ is the detail — overall, by rarity, by color, the scope rules, and the missing
 list with a want-list download.
 
 "Complete" is a stored per-set rule, because there is no objectively right
-answer. Bloomburrow has 397 English printings, of which **281** are
-booster-obtainable (collector numbers 1–281) and 116 are Collector Booster
-treatments and promos sharing the same code and set symbol. So "complete
-Bloomburrow" is 281 or 397 depending on what you meant.
+answer. Bloomburrow has 397 English printings. **378** of them come out of a
+booster: the 281 on the play-booster sheet plus their 97 Collector Booster
+treatments. The other 19 are starter-kit cards and promos sharing the same code
+and set symbol. So "complete Bloomburrow" is 378 or 397 depending on what you
+meant.
+
+Scryfall's `booster` flag only covers the play-booster sheet, so a treatment
+counts as booster-obtainable when it is a non-promo printing of a card the
+same set does put in boosters.
 
 ```
 completion_targets (set_code PK, booster_only, include_promos,

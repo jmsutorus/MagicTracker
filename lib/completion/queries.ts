@@ -125,6 +125,37 @@ const COLOR_ORDER = [
 ];
 
 /**
+ * Whether printing `p` comes out of any of its set's boosters, Collector
+ * Boosters included.
+ *
+ * Scryfall's `booster` flag answers a narrower question: is the card on the
+ * play/draft booster sheet. Every borderless, showcase and extended-art
+ * treatment is `booster: false`, so reading the flag literally would put only
+ * Aetherdrift's numbers 1-291 in scope and leave out the other 252 cards,
+ * even though those come out of Collector Boosters too.
+ *
+ * Scryfall has no field for "in a Collector Booster", so this counts a
+ * treatment by what it is: a non-promo, non-extra printing of a card that the
+ * same set *does* put in boosters. That keeps everything in Aetherdrift, and
+ * still leaves out the printings that really only come in a deck, such as
+ * Bloomburrow's starter-kit cards (379-397), Eldraine's Brawl and
+ * Planeswalker deck cards, and the Commander Legends: Battle for Baldur's
+ * Gate deck cards. Those are new cards with no booster printing in their set.
+ * Promo-stamped versions (buy-a-box, bundle) stay with `include_promos`.
+ */
+function inBoosters(): SQL {
+  return sql`(
+    p.is_booster
+    OR (NOT p.is_promo AND NOT p.is_extra AND EXISTS (
+          SELECT 1 FROM printings sib
+           WHERE sib.set_code = p.set_code
+             AND sib.oracle_id = p.oracle_id
+             AND sib.lang = 'en'
+             AND sib.is_booster))
+  )`;
+}
+
+/**
  * The scope predicate, as a reusable fragment.
  *
  * The three `OR NOT has_*` clauses are the important part: **an exclusion is
@@ -139,7 +170,7 @@ const COLOR_ORDER = [
  */
 function scopeFragment(): SQL {
   return sql`
-         AND (NOT scope.booster_only   OR NOT caps.has_booster  OR p.is_booster)
+         AND (NOT scope.booster_only   OR NOT caps.has_booster  OR ${inBoosters()})
          AND (    scope.include_promos OR NOT caps.has_nonpromo OR NOT p.is_promo)
          AND (    scope.include_extras OR NOT caps.has_nonextra OR NOT p.is_extra)
   `;
@@ -273,7 +304,7 @@ export async function listSetProgress(): Promise<SetProgress[]> {
         JOIN scope ON scope.set_code = p.set_code
         JOIN caps  ON caps.set_code  = p.set_code
        WHERE p.lang = 'en'
-         AND (NOT scope.booster_only   OR NOT caps.has_booster  OR p.is_booster)
+         AND (NOT scope.booster_only   OR NOT caps.has_booster  OR ${inBoosters()})
          AND (    scope.include_promos OR NOT caps.has_nonpromo OR NOT p.is_promo)
          AND (    scope.include_extras OR NOT caps.has_nonextra OR NOT p.is_extra)
     ),

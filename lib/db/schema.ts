@@ -595,10 +595,11 @@ export const collectionItems = pgTable(
  * What "complete" means for one set — stored per set, because there is no
  * objectively right answer.
  *
- * Within `blb`, 281 cards are booster-obtainable (collector numbers 1-281)
- * and another 116 are Collector Booster treatments and promos sharing the
- * same code and set symbol. So "complete Bloomburrow" is 281 or 397
- * depending on what you meant, and only you can say which.
+ * Within `blb`, 378 of 397 printings come out of a booster: the 281 on the
+ * play-booster sheet plus their 97 Collector Booster treatments. The rest are
+ * starter-kit cards and promos sharing the same code and set symbol. So
+ * "complete Bloomburrow" is 378 or 397 depending on what you meant, and only
+ * you can say which.
  *
  * Every completion view reads these flags at query time, so changing one
  * recalculates progress rather than invalidating a stored number.

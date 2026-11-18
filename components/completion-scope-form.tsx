@@ -79,7 +79,7 @@ export function CompletionScopeForm({ setCode, scope, applicable }: Props) {
           label="Booster-obtainable cards only"
           hint={
             applicable.boosterOnly
-              ? "The set as printed in packs, excluding Collector Booster treatments."
+              ? "Every card that comes out of a pack, Collector Booster treatments included. Leaves out deck-only cards."
               : "No card in this set comes from a booster, so this is ignored here."
           }
           checked={draft.boosterOnly}

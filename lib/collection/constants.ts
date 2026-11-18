@@ -141,9 +141,10 @@ export type CompletionScope = {
 /**
  * Booster-only, any finish — the most common meaning of "I completed the set".
  *
- * For Bloomburrow that is the 281 booster-obtainable cards (collector numbers
- * 1-281) rather than all 397, which is what a shop or a binder page means by
- * a complete set.
+ * "Booster" includes Collector Boosters. For Bloomburrow that is 378 of its
+ * 397 printings: the 281 play-booster cards and their 97 borderless and
+ * extended-art treatments, but not the starter-kit cards or the promos. See
+ * `inBoosters()` in lib/completion/queries.ts.
  */
 export const DEFAULT_COMPLETION_SCOPE: CompletionScope = {
   boosterOnly: true,
