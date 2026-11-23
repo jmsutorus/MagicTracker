@@ -49,12 +49,19 @@ function log(message: string): void {
   console.log(`[backup] ${message}`);
 }
 
-/** A sortable, filename-safe stamp: 2026-11-11T0917Z. */
+/**
+ * A sortable, filename-safe stamp: 2026-11-11T091742Z.
+ *
+ * Down to the second, because the job's service account can create objects
+ * but not overwrite them, and Cloud Run retries a failed execution within
+ * the same minute: a minute-level stamp made the retry's backup collide with
+ * the first attempt's and fail with a 403 (2026-11-16, 2026-11-23).
+ */
 function stamp(when = new Date()): string {
   return `${when.toISOString().slice(0, 10)}T${when
     .toISOString()
-    .slice(11, 16)
-    .replace(":", "")}Z`;
+    .slice(11, 19)
+    .replaceAll(":", "")}Z`;
 }
 
 /**

@@ -119,6 +119,71 @@ export type ScryfallPrices = {
   tix?: string | null;
 };
 
+/**
+ * Spacing between `POST /cards/collection` calls, well above the general
+ * courtesy delay.
+ *
+ * Scryfall rate-limits its heavier card endpoints harder than the 10 req/s it
+ * allows elsewhere, and the general 120ms spacing got this endpoint a 429 on
+ * every weekly run once the collection passed a few batches (2026-11-16 and
+ * 2026-11-23). Two a second is still only ~15s for 2,000 printings.
+ */
+const COLLECTION_DELAY_MS = 500;
+
+/** How many times a 429 is waited out before the job gives up. */
+const MAX_RATE_LIMIT_RETRIES = 5;
+
+let lastCollectionAt = 0;
+
+/**
+ * One batch, retried on 429.
+ *
+ * A 429 is Scryfall saying "slower", not "no", so it is waited out instead of
+ * failing the week's snapshot. `Retry-After` is honoured when sent (seconds);
+ * otherwise the wait doubles from two seconds. Any other status goes straight
+ * back to the caller, which reports it.
+ */
+export async function postCollectionWithRetry(
+  batch: string[],
+  options?: { sleep?: (ms: number) => Promise<void>; fetchImpl?: typeof fetch },
+): Promise<Response> {
+  const sleep =
+    options?.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const doFetch = options?.fetchImpl ?? fetch;
+
+  for (let attempt = 0; ; attempt++) {
+    const wait = COLLECTION_DELAY_MS - (Date.now() - lastCollectionAt);
+    if (wait > 0) await sleep(wait);
+    await courtesyDelay();
+    lastCollectionAt = Date.now();
+
+    const res = await doFetch(`${API_BASE}/cards/collection`, {
+      method: "POST",
+      headers: { ...scryfallHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ identifiers: batch.map((id) => ({ id })) }),
+      signal: AbortSignal.timeout(30_000),
+    });
+
+    if (res.status !== 429 || attempt >= MAX_RATE_LIMIT_RETRIES) return res;
+
+    const backoff = retryAfterMs(res.headers.get("retry-after"), attempt);
+    console.warn(
+      `[scryfall] 429 on /cards/collection; retrying in ${backoff}ms ` +
+        `(attempt ${attempt + 1} of ${MAX_RATE_LIMIT_RETRIES})`,
+    );
+    await sleep(backoff);
+  }
+}
+
+/** `Retry-After` in seconds if usable, else 2s, 4s, 8s... capped at a minute. */
+export function retryAfterMs(header: string | null, attempt: number): number {
+  const seconds = header === null ? NaN : Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds, 60) * 1000;
+  }
+  return Math.min(2000 * 2 ** attempt, 60_000);
+}
+
 export type ScryfallCardPrices = {
   id: string;
   name: string;
@@ -152,14 +217,7 @@ export async function getCardsByIds(
 
   for (let i = 0; i < ids.length; i += COLLECTION_BATCH_SIZE) {
     const batch = ids.slice(i, i + COLLECTION_BATCH_SIZE);
-    await courtesyDelay();
-
-    const res = await fetch(`${API_BASE}/cards/collection`, {
-      method: "POST",
-      headers: { ...scryfallHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ identifiers: batch.map((id) => ({ id })) }),
-      signal: AbortSignal.timeout(30_000),
-    });
+    const res = await postCollectionWithRetry(batch);
 
     if (!res.ok) {
       throw new Error(
