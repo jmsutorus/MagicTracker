@@ -62,6 +62,16 @@ export default async function AddCardsPage() {
           </p>
         </div>
 
+        {/* A precon is a hundred cards at once; typing them in here would
+            be the long way round. */}
+        <p className="mt-2 text-sm text-muted">
+          Opened a precon?{" "}
+          <Link href="/products" className="underline underline-offset-4">
+            Add the whole deck at once
+          </Link>
+          .
+        </p>
+
         <div className="mt-6">
           <CollectionEntry
             locations={locations}

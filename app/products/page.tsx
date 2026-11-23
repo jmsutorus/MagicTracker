@@ -7,7 +7,7 @@ import { requireUser } from "@/lib/auth/dal";
 import { DEFAULT_PRODUCT_TYPE } from "@/lib/products/constants";
 import { listProductTypes, listProducts } from "@/lib/products/queries";
 
-export const metadata = { title: "Sealed products · MagicTracker" };
+export const metadata = { title: "Precons · MagicTracker" };
 
 const PAGE_SIZE = 40;
 
@@ -70,9 +70,7 @@ export default async function ProductsPage({
       <AppHeader current="products" />
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Sealed products
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Precons</h1>
         <p className="mt-2 text-sm text-muted">
           Open a box and everything in it goes into your collection at once.
         </p>

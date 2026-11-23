@@ -451,6 +451,12 @@ Archidekt and Deckbox all import.
 its whole contents into the collection. Buying a Commander precon is two
 clicks rather than an hour of typing, which is the point of the phase.
 
+It is labelled **Precons** on screen and sits under the header's "More" menu,
+not the primary row. You use it once per box bought, and everything it creates
+lives in Collection and Decks, so it is reached from there: Decks has "From a
+precon", Add cards has "Add the whole deck at once", and the dashboard has
+"Open a precon". The URL stays `/products` so old links keep working.
+
 **Only precons, not every sealed product.** A booster box has no deterministic
 contents — "add a booster box" cannot name a single card — so there is nothing
 to add. A precon's card list is fixed, which is exactly what makes a one-step

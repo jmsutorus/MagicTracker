@@ -22,7 +22,7 @@ import {
   type ProductCardRow,
 } from "@/lib/products/queries";
 
-export const metadata = { title: "Product · MagicTracker" };
+export const metadata = { title: "Precon · MagicTracker" };
 
 export default async function ProductPage({
   params,
@@ -70,7 +70,7 @@ export default async function ProductPage({
           href="/products"
           className="text-sm text-muted underline underline-offset-4 hover:text-foreground"
         >
-          ← All products
+          ← All precons
         </Link>
 
         <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">

@@ -26,7 +26,17 @@ export default async function DecksPage() {
       <AppHeader current="decks" />
 
       <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Decks</h1>
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Decks</h1>
+          {/* Always here, not only on an empty list: buying a precon is how
+              most decks start, and the menu no longer has a Products link. */}
+          <Link
+            href="/products"
+            className="text-sm text-muted underline underline-offset-4 hover:text-foreground"
+          >
+            From a precon
+          </Link>
+        </div>
 
         <div className="mt-6">
           <DeckCreateForm />

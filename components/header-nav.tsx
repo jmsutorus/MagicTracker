@@ -23,7 +23,7 @@ export type NavKey =
  * undifferentiated: "Import" is something you do twice a year and sat beside
  * "Collection", which is the point of the app.
  *
- * So: six primary destinations, and the occasional ones folded into a menu.
+ * So: five primary destinations, and the occasional ones folded into a menu.
  * "Cards" is gone entirely — the header now carries a search box, which is
  * what that link was for.
  */
@@ -32,13 +32,18 @@ const PRIMARY: { key: NavKey; href: string; label: string }[] = [
   { key: "collection", href: "/collection", label: "Collection" },
   { key: "decks", href: "/decks", label: "Decks" },
   { key: "sets", href: "/sets", label: "Sets" },
-  { key: "products", href: "/products", label: "Products" },
   { key: "wishlist", href: "/wishlist", label: "Wishlist" },
 ];
 
 const SECONDARY: { key: NavKey; href: string; label: string }[] = [
   { key: "value", href: "/value", label: "Value over time" },
   { key: "import", href: "/import", label: "Import a list" },
+  /*
+   * Demoted from the primary row on 2026-11-23. It is used once per precon
+   * bought, and what it makes lives in Collection and Decks, which both link
+   * here at the moment you need it.
+   */
+  { key: "products", href: "/products", label: "Precons" },
   { key: "locations", href: "/collection/locations", label: "Locations" },
   { key: "cards", href: "/cards", label: "Card search" },
 ];
@@ -91,7 +96,7 @@ export function HeaderNav({
         <span className="sr-only">Menu</span>
       </button>
 
-      {/* ---- desktop: the primary six, then More ------------------------ */}
+      {/* ---- desktop: the primary five, then More ----------------------- */}
       <nav className="ml-auto hidden items-center gap-x-4 lg:flex">
         {PRIMARY.map((item) => (
           <Link key={item.href} href={item.href} className={linkClass(item.key)}>
@@ -104,7 +109,13 @@ export function HeaderNav({
             type="button"
             onClick={() => setMoreOpen((o) => !o)}
             aria-expanded={moreOpen}
-            className="cursor-pointer text-sm text-muted hover:text-foreground"
+            // Lit when the page is one of its items, so a page reached
+            // through More still shows where you are in the menu.
+            className={`cursor-pointer text-sm hover:text-foreground ${
+              SECONDARY.some((item) => item.key === current)
+                ? "text-foreground"
+                : "text-muted"
+            }`}
           >
             More <span aria-hidden>▾</span>
           </button>
