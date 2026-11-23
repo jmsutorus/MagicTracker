@@ -781,3 +781,61 @@ export function buyListFilename(deckName: string): string {
       .slice(0, 48) || "deck";
   return `${slug}-buy-list.txt`;
 }
+
+export type CardDeckUse = {
+  deckId: string;
+  deckName: string;
+  format: DeckFormat;
+  board: DeckBoard;
+  quantity: number;
+  /** The deck is built and this card is claimed by it. */
+  isAllocated: boolean;
+  /** Where the built deck lives, when it says. */
+  locationName: string | null;
+};
+
+/**
+ * Every deck that lists this card, and on which board.
+ *
+ * Keyed on oracle id like the decklist itself: a deck asks for the card, not
+ * a printing, so a deck holding any printing of it counts. One row per deck
+ * and board, so a card in both a main deck and its maybeboard shows twice.
+ */
+export async function listDecksForOracle(
+  oracleId: string,
+): Promise<CardDeckUse[]> {
+  const db = getDb();
+
+  const { rows } = await db.execute<{
+    deck_id: string;
+    deck_name: string;
+    format: string;
+    board: DeckBoard;
+    quantity: number;
+    is_allocated: boolean;
+    location_name: string | null;
+  }>(sql`
+    SELECT d.id::text AS deck_id,
+           d.name     AS deck_name,
+           d.format,
+           dc.board,
+           dc.quantity,
+           dc.is_allocated,
+           l.name     AS location_name
+      FROM deck_cards dc
+      JOIN decks d ON d.id = dc.deck_id
+      LEFT JOIN locations l ON l.id = d.location_id
+     WHERE dc.oracle_id = ${oracleId}::uuid
+     ORDER BY lower(d.name), array_position(${BOARD_ORDER_SQL}, dc.board)
+  `);
+
+  return rows.map((r) => ({
+    deckId: r.deck_id,
+    deckName: r.deck_name,
+    format: isDeckFormat(r.format) ? r.format : "commander",
+    board: r.board,
+    quantity: r.quantity,
+    isAllocated: r.is_allocated,
+    locationName: r.location_name,
+  }));
+}

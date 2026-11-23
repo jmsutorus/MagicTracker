@@ -659,3 +659,86 @@ export async function browseCollection(
     matchingCopies: countRows[0]?.matching_copies ?? 0,
   };
 }
+
+export type CardLocationCopies = {
+  locationId: string;
+  locationName: string;
+  locationKind: LocationKind;
+  printingId: string;
+  setCode: string;
+  collectorNumber: string;
+  finish: CardFinish;
+  condition: CardCondition;
+  quantity: number;
+};
+
+/**
+ * Every place a copy of this card is filed, one row per location, printing,
+ * finish and condition.
+ *
+ * The card page's "where is it" answer. `listOwnedCopiesForOracle` sums
+ * across locations on purpose (it labels the printing rows), so it cannot
+ * say that two of four copies are in a binder and two in a deck box.
+ *
+ * Ordered the way the locations page orders shelves, so the list reads in
+ * the same sequence the person arranged them in.
+ */
+export async function listOwnedLocationsForOracle(
+  oracleId: string,
+): Promise<CardLocationCopies[]> {
+  const db = getDb();
+
+  const { rows } = await db.execute<{
+    location_id: string;
+    location_name: string;
+    location_kind: LocationKind;
+    printing_id: string;
+    set_code: string;
+    collector_number: string;
+    finish: CardFinish;
+    condition: CardCondition;
+    quantity: number;
+  }>(sql`
+    SELECT l.id::text          AS location_id,
+           l.name              AS location_name,
+           l.kind              AS location_kind,
+           c.printing_id::text AS printing_id,
+           p.set_code,
+           p.collector_number,
+           c.finish,
+           c.condition,
+           sum(c.quantity)::int AS quantity
+      FROM collection_items c
+      JOIN printings p ON p.scryfall_id = c.printing_id
+      JOIN locations l ON l.id = c.location_id
+     WHERE p.oracle_id = ${oracleId}::uuid
+     GROUP BY l.id, l.name, l.kind, l.sort_order, c.printing_id,
+              p.set_code, p.collector_number, c.finish, c.condition
+     ORDER BY l.sort_order, l.name, p.set_code, p.collector_number,
+              array_position(${FINISH_ORDER_SQL}, c.finish),
+              array_position(${CONDITION_ORDER_SQL}, c.condition)
+  `);
+
+  return rows.map((r) => ({
+    locationId: r.location_id,
+    locationName: r.location_name,
+    locationKind: r.location_kind,
+    printingId: r.printing_id,
+    setCode: r.set_code,
+    collectorNumber: r.collector_number,
+    finish: r.finish,
+    condition: r.condition,
+    quantity: r.quantity,
+  }));
+}
+
+/*
+ * The app's finish and condition order as SQL arrays. `sql.raw` is safe: the
+ * values are a closed set of identifiers from lib/collection/constants.ts.
+ */
+const FINISH_ORDER_SQL = sql.raw(
+  `ARRAY[${CARD_FINISHES.map((f) => `'${f}'`).join(", ")}]::text[]`,
+);
+const CONDITION_ORDER_SQL = sql.raw(
+  `ARRAY[${CARD_CONDITIONS.map((c) => `'${c}'`).join(", ")}]::text[]`,
+);

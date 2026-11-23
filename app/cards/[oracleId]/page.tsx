@@ -15,8 +15,11 @@ import { getCardDetail } from "@/lib/cards/search";
 import { describeOwnedCopies } from "@/lib/collection/constants";
 import {
   listOwnedCopiesForOracle,
+  listOwnedLocationsForOracle,
   type OwnedCopies,
 } from "@/lib/collection/queries";
+import { listDecksForOracle } from "@/lib/decks/queries";
+import { CardWhereabouts } from "@/components/card-whereabouts";
 import type { GameSlug } from "@/lib/games/constants";
 import { getOwnedPriceHistory } from "@/lib/prices/queries";
 import { cardImageUrl } from "@/lib/scryfall/client";
@@ -118,9 +121,11 @@ export default async function CardDetailPage({
 
   // Both only ever have anything for a card you own, so they cost nothing on
   // the overwhelming majority of card pages.
-  const [history, owned] = await Promise.all([
+  const [history, owned, whereabouts, inDecks] = await Promise.all([
     getOwnedPriceHistory(oracleId),
     listOwnedCopiesForOracle(oracleId),
+    listOwnedLocationsForOracle(oracleId),
+    listDecksForOracle(oracleId),
   ]);
 
   /*
@@ -260,6 +265,12 @@ export default async function CardDetailPage({
           </div>
         </div>
 
+        <CardWhereabouts
+          cardName={card.name}
+          locations={whereabouts}
+          decks={inDecks}
+        />
+
         <PriceHistory series={history} />
 
         <section className="mt-10">
@@ -278,8 +289,7 @@ export default async function CardDetailPage({
                   {ownedCopies} {ownedCopies === 1 ? "copy" : "copies"}
                 </span>{" "}
                 across {ownedByPrinting.size}{" "}
-                {ownedByPrinting.size === 1 ? "printing" : "printings"} — the
-                collection page says where they are.
+                {ownedByPrinting.size === 1 ? "printing" : "printings"}.
               </>
             ) : (
               <>
