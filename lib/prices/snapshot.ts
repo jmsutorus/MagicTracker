@@ -3,8 +3,13 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { getCardsByIds } from "@/lib/scryfall/client";
 
-import { DEFAULT_PRICE_SOURCE, type PriceSource } from "./constants";
+import {
+  DAILY_PRICE_RETENTION_DAYS,
+  DEFAULT_PRICE_SOURCE,
+  type PriceSource,
+} from "./constants";
 import { projectPrices, type PriceRow, type UnpricedRow } from "./project";
+import { valuedCentsSql } from "./valuation";
 
 /**
  * Taking a price snapshot.
@@ -171,6 +176,9 @@ export async function takeSnapshot(options?: {
 
   const totals = await writeValueSnapshotFromPrices(snapshotDate, source);
 
+  // After the total, so a failure here can never cost today's number.
+  await thinOldPriceSnapshots(snapshotDate, source);
+
   return {
     snapshotDate,
     owned: owned.length,
@@ -179,6 +187,37 @@ export async function takeSnapshot(options?: {
     notFound,
     ...totals,
   };
+}
+
+/**
+ * Thins per-card price rows older than DAILY_PRICE_RETENTION_DAYS to one a
+ * week.
+ *
+ * The row kept is the week's earliest snapshot date, taken from
+ * `value_snapshots` (one row per date, so the lookup is cheap). That is
+ * "the first run of the week", not "Monday": a week whose Monday run failed
+ * still keeps whichever day did run, instead of losing the week entirely.
+ *
+ * Only `price_snapshots`, which this job alone writes and which can be
+ * re-derived for nothing that matters. `value_snapshots` keeps every day.
+ */
+async function thinOldPriceSnapshots(
+  snapshotDate: string,
+  source: PriceSource,
+): Promise<void> {
+  const db = getDb();
+  await db.execute(sql`
+    DELETE FROM price_snapshots s
+     WHERE s.source = ${source}
+       AND s.snapshot_date < ${snapshotDate}::date - ${DAILY_PRICE_RETENTION_DAYS}::int
+       AND s.snapshot_date <> (
+             SELECT min(v.snapshot_date)
+               FROM value_snapshots v
+              WHERE v.source = s.source
+                AND date_trunc('week', v.snapshot_date)
+                  = date_trunc('week', s.snapshot_date)
+           )
+  `);
 }
 
 /** Upserts one day's price rows in a single statement. */
@@ -243,7 +282,8 @@ async function writeValueSnapshotFromPrices(
     unpriced_copies: number;
     unpriced_items: number;
   }>(sql`
-    SELECT coalesce(sum(c.quantity * s.price_cents), 0)::int AS total_cents,
+    SELECT coalesce(sum(c.quantity * ${valuedCentsSql(sql`s.price_cents`)}), 0)::int
+             AS total_cents,
            coalesce(sum(c.quantity) FILTER (WHERE s.price_cents IS NOT NULL), 0)::int
              AS priced_copies,
            coalesce(sum(c.quantity) FILTER (WHERE s.price_cents IS NULL), 0)::int

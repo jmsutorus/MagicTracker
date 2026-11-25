@@ -38,6 +38,11 @@
  * nothing to force — there is no upstream version for any of them to compare
  * against — so they accept the flag and ignore it rather than failing on an
  * argument they did not expect.
+ *
+ * `--prices-only` runs step 5 alone. That is the daily job: prices change
+ * every day, while the catalogs change weekly at most and re-downloading
+ * Scryfall's whole bulk file every night to read a few thousand prices would
+ * be the wasteful choice. The flag is consumed here, not passed on.
  */
 import { spawnSync } from "node:child_process";
 const SCRIPTS = [
@@ -49,11 +54,16 @@ const SCRIPTS = [
   "scripts/export-backup.ts",
 ];
 
+const PRICES_ONLY_FLAG = "--prices-only";
+
 function main(): void {
-  const args = process.argv.slice(2);
+  const raw = process.argv.slice(2);
+  const pricesOnly = raw.includes(PRICES_ONLY_FLAG);
+  const args = raw.filter((a) => a !== PRICES_ONLY_FLAG);
+  const scripts = pricesOnly ? ["scripts/ingest-prices.ts"] : SCRIPTS;
   const failed: string[] = [];
 
-  for (const script of SCRIPTS) {
+  for (const script of scripts) {
     console.log(`\n=== ${script} ${args.join(" ")} ===\n`);
 
     /*
@@ -89,7 +99,7 @@ function main(): void {
     process.exit(1);
   }
 
-  console.log(`\ningest finished: all ${SCRIPTS.length} steps succeeded`);
+  console.log(`\ningest finished: all ${scripts.length} steps succeeded`);
 }
 
 main();

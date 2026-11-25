@@ -8,12 +8,13 @@ import {
   MOVERS_WINDOW_DAYS,
   type PriceSource,
 } from "./constants";
+import { valuedCentsSql } from "./valuation";
 
 /**
  * Reading the value of a collection.
  *
  * Everything here is "at the latest snapshot", never "live": prices come from
- * a weekly job, so the honest thing is to report the date they were taken
+ * a nightly job, so the honest thing is to report the date they were taken
  * alongside every number. A page that showed a total with no date would imply
  * it was current.
  */
@@ -100,7 +101,9 @@ export type ValuePoint = { date: string; cents: number };
  */
 export async function getValueHistory(
   source: PriceSource = DEFAULT_PRICE_SOURCE,
-  limit = 260,
+  // Five years of nightly points. It was 260 when the job ran weekly, which
+  // nightly would have cut to eight months without anyone noticing.
+  limit = 1830,
 ): Promise<ValuePoint[]> {
   const db = getDb();
   const { rows } = await db.execute<{ date: string; cents: number }>(sql`
@@ -172,14 +175,20 @@ export async function getMovers(
      * and a card bought last week has no row that far back, so an equality
      * test would return almost nothing.
      */
+    /*
+     * Both sides at their bulk-adjusted value, so the movers explain the
+     * total: a common going from 10 to 30 cents moved nothing in it.
+     */
     now_prices AS (
-      SELECT s.printing_id, s.finish, s.price_cents, s.snapshot_date
+      SELECT s.printing_id, s.finish,
+             ${valuedCentsSql(sql`s.price_cents`)} AS price_cents, s.snapshot_date
         FROM price_snapshots s, latest
        WHERE s.source = ${source} AND s.snapshot_date = latest.d
     ),
     then_prices AS (
       SELECT DISTINCT ON (s.printing_id, s.finish)
-             s.printing_id, s.finish, s.price_cents, s.snapshot_date
+             s.printing_id, s.finish,
+             ${valuedCentsSql(sql`s.price_cents`)} AS price_cents, s.snapshot_date
         FROM price_snapshots s, latest
        WHERE s.source = ${source}
          -- ::int, because a bare parameter next to a date is ambiguous:
@@ -282,7 +291,8 @@ export async function getAcquisitionSummary(
       SELECT max(snapshot_date) AS d FROM value_snapshots WHERE source = ${source}
     ),
     priced AS (
-      SELECT c.quantity, c.acquired_price_cents, s.price_cents
+      SELECT c.quantity, c.acquired_price_cents,
+             ${valuedCentsSql(sql`s.price_cents`)} AS price_cents
         FROM collection_items c
         LEFT JOIN latest ON true
         LEFT JOIN price_snapshots s
@@ -351,8 +361,9 @@ export async function getMostValuable(
            p.collector_number,
            c.finish,
            sum(c.quantity)::int AS quantity,
-           s.price_cents AS unit_cents,
-           (sum(c.quantity) * s.price_cents)::int AS total_cents
+           ${valuedCentsSql(sql`s.price_cents`)} AS unit_cents,
+           (sum(c.quantity) * ${valuedCentsSql(sql`s.price_cents`)})::int
+             AS total_cents
       FROM collection_items c
       JOIN latest ON true
       JOIN price_snapshots s
@@ -504,7 +515,9 @@ export async function getOwnedPriceHistory(
     const last = series.points[series.points.length - 1];
     series.latestCents = last ? last.cents : null;
     series.changeCents =
-      first && last && series.points.length > 1 ? last.cents - first.cents : null;
+      first && last && series.points.length > 1
+        ? last.cents - first.cents
+        : null;
   }
 
   return all.slice(0, limit);

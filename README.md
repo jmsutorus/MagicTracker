@@ -156,6 +156,7 @@ everything the others changed.
 |---|---|
 | Job | `ingest-cards`, region `us-east5` (named for the first of its steps) |
 | Schedule | `ingest-cards-weekly`, region `us-east4`, Mondays 09:17 UTC |
+| Nightly prices | `ingest-prices` job (same image, `--prices-only`), started by `ingest-prices-nightly` at 09:17 UTC every day but Monday |
 | Image | `us-east5-docker.pkg.dev/magictracker-514320/magictracker/ingest-cards` |
 | Built from | `Dockerfile.ingest` via `cloudbuild.ingest.yaml` |
 | Runs as | `mtg-ingest@` — `secretAccessor` on one secret, `objectCreator` on the backup bucket, nothing else |
@@ -813,6 +814,13 @@ back to the foil price, because they are different cards on the market.
 The chart reads `value_snapshots` directly and says so on the card. The job is
 idempotent per day: a second run the same day updates that day's rows, so a
 retry after a half-finished run is safe.
+
+**Prices are nightly; the catalogs are weekly.** The `ingest-prices` job runs
+only step 5, every night but Monday (when the weekly job prices anyway).
+Daily rows for ~2,000 owned pairs are ~1.2 MB a day, so per-card rows older
+than 90 days are thinned to one per week (the week's first run);
+`value_snapshots` keeps every day. One Piece prices still refresh only
+weekly, since they come from that game's catalog ingest.
 
 **Only what you own is priced.** 136k printings × a weekly snapshot would
 exhaust the 1 GB plan within months. `POST /cards/collection` takes 75 ids a

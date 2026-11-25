@@ -27,7 +27,7 @@ export function PriceHistory({ series }: { series: PriceHistorySeries[] }) {
           Price history
         </h2>
         <p className="mt-2 text-sm text-muted">
-          You own this, but the weekly price job hasn&rsquo;t covered it yet.
+          You own this, but the nightly price job hasn&rsquo;t covered it yet.
         </p>
       </section>
     );
@@ -40,7 +40,7 @@ export function PriceHistory({ series }: { series: PriceHistorySeries[] }) {
       </h2>
       <p className="mt-1 text-xs text-muted">
         What your {withHistory.length === 1 ? "copy has" : "copies have"} been
-        worth, one weekly snapshot per point.
+        worth: daily for the last three months, weekly before that.
       </p>
 
       <div className="mt-4 space-y-6">

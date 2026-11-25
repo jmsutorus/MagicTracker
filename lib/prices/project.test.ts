@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { formatCents, formatCentsDelta } from "./constants";
+import { formatCents, formatCentsDelta, valuedCents } from "./constants";
+
+test("valuedCents: anything under 50 cents counts as 15", () => {
+  assert.equal(valuedCents(4), 15);
+  assert.equal(valuedCents(49), 15);
+  assert.equal(valuedCents(50), 50);
+  assert.equal(valuedCents(6190), 6190);
+});
 import {
   formatPercent,
   parsePriceToCents,

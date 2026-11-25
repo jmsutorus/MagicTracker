@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-  Creates (or updates) the GCP-native weekly Scryfall ingest: a Cloud Run Job
-  plus a Cloud Scheduler trigger.
+  Creates (or updates) the GCP-native weekly Scryfall ingest and the nightly
+  price snapshot: two Cloud Run Jobs on one image, each with a Cloud
+  Scheduler trigger.
 
 .DESCRIPTION
   Everything here is idempotent - run it again after changing the ingest and
@@ -46,6 +47,12 @@ param(
   # Mondays 09:17 UTC. Odd minute on purpose: schedules on the hour queue
   # behind everyone else's.
   [string]$Schedule        = "17 9 * * 1",
+  # The prices-only job: every other night at the same 09:17 UTC (04:17
+  # Eastern, 01:17 Pacific). Mondays are skipped because the weekly job
+  # above already prices as its fifth step - two runs at once would just
+  # race to upsert the same day's rows.
+  [string]$PricesJobName   = "ingest-prices",
+  [string]$PricesSchedule  = "17 9 * * 0,2-6",
   # Only used when the secret does not exist yet. Left empty, the script
   # reads DATABASE_URL_UNPOOLED out of .env.local.
   [string]$DatabaseUrl     = "",
@@ -111,6 +118,7 @@ Step "Target"
 Note "project   $ProjectId"
 Note "job       $JobName in $JobRegion"
 Note "scheduler $schedulerJob in $SchedulerRegion ($Schedule UTC)"
+Note "prices    $PricesJobName-nightly ($PricesSchedule UTC)"
 
 Step "Enabling APIs"
 Invoke-Gc services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com cloudscheduler.googleapis.com secretmanager.googleapis.com --project $ProjectId
@@ -276,6 +284,28 @@ if (Test-Gc scheduler jobs describe $schedulerJob --location $SchedulerRegion --
   Invoke-Gc scheduler jobs update http $schedulerJob --location $SchedulerRegion --project $ProjectId --schedule $Schedule --time-zone Etc/UTC --uri $uri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s --description $schedulerDescription
 } else {
   Invoke-Gc scheduler jobs create http $schedulerJob --location $SchedulerRegion --project $ProjectId --schedule $Schedule --time-zone Etc/UTC --uri $uri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s --description $schedulerDescription
+}
+
+<#
+  The nightly price job. A second Cloud Run Job on the same image with
+  --prices-only baked into its args, rather than the weekly job started with
+  argument overrides: running a job with overrides needs
+  run.jobs.runWithOverrides, which run.invoker does not carry, and a separate
+  job also gets its own logs and its own run history. No backup bucket and
+  less memory - it fetches a few thousand prices, not the bulk file.
+#>
+Step "Cloud Run Job: $PricesJobName"
+Invoke-Gc run jobs deploy $PricesJobName --image $deployImage --region $JobRegion --project $ProjectId --service-account $jobSa --set-secrets "$SecretName=${SecretName}:latest" --clear-env-vars --args=--prices-only --cpu 1 --memory 512Mi --task-timeout 15m --max-retries 1 --parallelism 1 --tasks 1
+Invoke-Gc run jobs add-iam-policy-binding $PricesJobName --region $JobRegion --project $ProjectId --member "serviceAccount:$schedulerSa" --role roles/run.invoker
+
+$pricesSchedulerJob = "$PricesJobName-nightly"
+$pricesUri = "https://run.googleapis.com/v2/projects/$ProjectId/locations/$JobRegion/jobs/${PricesJobName}:run"
+$pricesDescription = "Nightly price snapshot for the printings you own"
+if (Test-Gc scheduler jobs describe $pricesSchedulerJob --location $SchedulerRegion --project $ProjectId) {
+  Note "updating the existing nightly schedule"
+  Invoke-Gc scheduler jobs update http $pricesSchedulerJob --location $SchedulerRegion --project $ProjectId --schedule $PricesSchedule --time-zone Etc/UTC --uri $pricesUri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s --description $pricesDescription
+} else {
+  Invoke-Gc scheduler jobs create http $pricesSchedulerJob --location $SchedulerRegion --project $ProjectId --schedule $PricesSchedule --time-zone Etc/UTC --uri $pricesUri --http-method POST --oauth-service-account-email $schedulerSa --attempt-deadline 60s --description $pricesDescription
 }
 
 Step "Done"

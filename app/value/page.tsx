@@ -5,6 +5,8 @@ import { AppHeader } from "@/components/app-header";
 import { ValueChart } from "@/components/value-chart";
 import { requireUser } from "@/lib/auth/dal";
 import {
+  BULK_THRESHOLD_CENTS,
+  BULK_VALUE_CENTS,
   DEFAULT_PRICE_SOURCE,
   MOVERS_WINDOW_DAYS,
   formatCents,
@@ -150,8 +152,10 @@ export default async function ValuePage() {
               paragraph explained where the data comes from and how often it
               refreshes, which changes nothing anyone would do. */}
           <p className="mt-2 text-sm text-muted">
-            Near-mint market price, recorded weekly. Condition isn&rsquo;t
-            discounted.
+            Near-mint market price, recorded nightly. Condition isn&rsquo;t
+            discounted. Bulk — any card under{" "}
+            {formatCents(BULK_THRESHOLD_CENTS)} — counts as{" "}
+            {formatCents(BULK_VALUE_CENTS)}.
           </p>
         </section>
 
@@ -171,9 +175,8 @@ export default async function ValuePage() {
               worked.
             */}
             <p className="mt-3 text-sm text-muted">
-              Prices are recorded once a week. The first one lands next
-              Monday, and the chart starts the week after — a line needs two
-              points.
+              Prices are recorded once a night. The first one lands tonight, and
+              the chart starts the night after — a line needs two points.
             </p>
           </section>
         ) : (
@@ -233,8 +236,8 @@ export default async function ValuePage() {
                 Value over time
               </h2>
               <p className="mt-1 text-xs text-muted">
-                The weekly totals as they were recorded — each point is that
-                week&apos;s prices against what you owned that week, not
+                The nightly totals as they were recorded — each point is that
+                day&apos;s prices against what you owned that day, not
                 today&apos;s collection priced backwards.
               </p>
               <div className="mt-4">
